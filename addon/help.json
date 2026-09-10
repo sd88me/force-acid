@@ -1,0 +1,93 @@
+{
+  "title": "Acid",
+  "children": [
+    {
+      "title": "Overview",
+      "lines": [
+        "Two generative acid",
+        "sequencers, blended",
+        "into one output.",
+        "",
+        "Both run on Move's",
+        "clock continuously.",
+        "",
+        "Play a note to",
+        "transpose live",
+        "(C4 = no shift).",
+        "Root knob sets the",
+        "key it plays in."
+      ]
+    },
+    {
+      "title": "Quick Start",
+      "lines": [
+        "1) Insert Acid in a",
+        " MIDI FX slot.",
+        "2) Route to a synth.",
+        "3) Press Play.",
+        "4) Set Root, or play",
+        " a note to transpose."
+      ]
+    },
+    {
+      "title": "Sequencer A / B",
+      "lines": [
+        "Generate: fresh",
+        "reroll from a new",
+        "seed.",
+        "Mutate: nudge ~25%",
+        "of the steps.",
+        "Density/Accent/",
+        "Slide: per-step",
+        "probabilities.",
+        "Octaves: pitch",
+        "range, 1-3.",
+        "Length: 2-32 steps.",
+        "Gate: note length,",
+        "per sequencer."
+      ]
+    },
+    {
+      "title": "Global",
+      "lines": [
+        "Scale/Root: shared",
+        "by both sequencers.",
+        "Tune B: Seq B's",
+        "interval from A, in",
+        "semitones (+/-24).",
+        "Both still follow",
+        "Root and note-in.",
+        "Blend: crossfade A",
+        "<-> B, centre = both.",
+        "Algo A / Algo B:",
+        "1-16, blends a 2nd",
+        "generator in.",
+        "Reset Both: snap",
+        "both to step 1 every",
+        "1/2/4/8 bars, or Off",
+        "to let differently-",
+        "lengthed patterns",
+        "drift as a polymeter.",
+        "Swing: 50-75%, MPC-",
+        "style 16th feel. 50",
+        "= straight, 66 = a",
+        "triplet, 75 = max.",
+        "Applies to both."
+      ]
+    },
+    {
+      "title": "Algo",
+      "lines": [
+        "1 = classic model:",
+        "density/accent/",
+        "slide/octave rolls.",
+        "16 = mostly a 2nd,",
+        "urn + random-walk",
+        "generator with",
+        "pyramid-shaped",
+        "accents. In between",
+        "blends the two."
+      ]
+    }
+  ]
+}

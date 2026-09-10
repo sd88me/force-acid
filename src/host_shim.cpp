@@ -1,0 +1,401 @@
+/* host_shim.cpp — Force/MockbaMod runtime host for the ported Acid generator.
+ *
+ * Plays the exact role the Schwung MIDI-FX chain host played for acid.c:
+ *
+ *   Schwung host                         this shim
+ *   ------------------------------------ ----------------------------------------
+ *   loads dsp.so, calls move_midi_fx_init  links acid_core.o, calls it directly
+ *   process_midi() per incoming event    RtMidi input callback -> process_midi()
+ *   tick(frames, sr) per audio block     wall-clock timer thread -> tick()
+ *   set_param(key, "0.42") from knobs    CC on the control channel -> set_param()
+ *   host->get_bpm()                      estimated from incoming 0xF8 clock
+ *   host->get_clock_status()             transport state (0xFA/0xFC) + clock life
+ *   one hard-wired output channel        --out-channel (low nibble rewrite)
+ *
+ * acid_core.c is unchanged. Everything Force-specific lives here.
+ *
+ * Build: see scripts/build.sh (cross-compiles armhf, links -lasound -lpthread).
+ */
+
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#include "rtmidi/RtMidi.h"
+
+extern "C" {
+#include "acid_core.h"
+}
+
+/* ---------------------------------------------------------------------------
+ * chain_param table — transcribed from schwung-acid/src/acid/module.json.
+ * Keep in sync by hand; DESIGN.md explains why it is not read from JSON here.
+ * kind: 'f' float, 'i' int, 'e' enum (value is option index), 'w' write-only
+ *       momentary trigger (generate / mutate).
+ * ------------------------------------------------------------------------- */
+struct ParamSpec {
+    const char *key;
+    char        kind;
+    double      lo, hi;   /* for f/i: value range. for e: 0 .. (n_options-1). */
+    int         default_cc;
+};
+
+static const ParamSpec PARAMS[] = {
+    /* key            kind   lo     hi     CC  */
+    { "a_generate",   'w',   0,     1,     20 },
+    { "a_mutate",     'w',   0,     1,     21 },
+    { "a_density",    'f',   0.0,   1.0,   22 },
+    { "a_accent",     'f',   0.0,   1.0,   23 },
+    { "a_slide",      'f',   0.0,   1.0,   24 },
+    { "a_octaves",    'i',   1,     3,     25 },
+    { "a_length",     'f',   2,     32,    26 },
+    { "a_gate",       'f',   0.05,  1.0,   27 },
+
+    { "b_generate",   'w',   0,     1,     40 },
+    { "b_mutate",     'w',   0,     1,     41 },
+    { "b_density",    'f',   0.0,   1.0,   42 },
+    { "b_accent",     'f',   0.0,   1.0,   43 },
+    { "b_slide",      'f',   0.0,   1.0,   44 },
+    { "b_octaves",    'i',   1,     3,     45 },
+    { "b_length",     'f',   2,     32,    46 },
+    { "b_gate",       'f',   0.05,  1.0,   47 },
+
+    { "scale",        'e',   0,     5,     50 },   /* 6 options  */
+    { "root",         'e',   0,     11,    51 },   /* 12 options */
+    { "b_tune",       'i',  -24,    24,    52 },
+    { "blend",        'i',  -63,    64,    53 },
+    { "a_algo",       'i',   1,     16,    54 },
+    { "b_algo",       'i',   1,     16,    55 },
+    { "reset_bars",   'e',   0,     4,     56 },   /* 5 options  */
+    { "swing",        'f',   50,    75,    57 },
+};
+static const int N_PARAMS = (int)(sizeof(PARAMS) / sizeof(PARAMS[0]));
+
+/* ---------------------------------------------------------------------------
+ * Globals
+ * ------------------------------------------------------------------------- */
+static std::atomic<bool>  g_run{true};
+static std::mutex         g_lock;          /* serialises every call into the core */
+static midi_fx_api_v1_t  *g_api  = nullptr;
+static void              *g_inst = nullptr;
+static RtMidiOut         *g_out  = nullptr;
+
+static int   g_ctrl_ch     = 0;            /* 0-based control channel (default 1) */
+static int   g_out_ch      = 0;            /* 0-based output channel  (default 1) */
+static bool  g_verbose     = false;
+static bool  g_forward_unmapped = true;    /* pass CC/PB/PC we don't consume to the synth */
+
+/* CC -> param index, built at startup from PARAMS[].default_cc + config file. */
+static std::unordered_map<int, int> g_cc2param;
+
+/* BPM estimation from 24-PPQN clock. */
+static std::atomic<float> g_bpm{120.0f};
+static std::atomic<int>   g_clock_status{MOVE_CLOCK_STATUS_STOPPED};
+static std::chrono::steady_clock::time_point g_last_pulse;
+static bool   g_have_last_pulse = false;
+static double g_pulse_ema_us   = 0.0;       /* EMA of inter-pulse interval, microseconds */
+static std::chrono::steady_clock::time_point g_last_clock_seen;
+
+/* ---------------------------------------------------------------------------
+ * Host callbacks handed to acid_core.c
+ * ------------------------------------------------------------------------- */
+static float host_get_bpm(void) { return g_bpm.load(); }
+
+static int host_get_clock_status(void) {
+    /* Demote RUNNING->STOPPED if the clock has gone silent for >0.5 s. */
+    if (g_clock_status.load() == MOVE_CLOCK_STATUS_RUNNING) {
+        auto now = std::chrono::steady_clock::now();
+        auto quiet = std::chrono::duration_cast<std::chrono::milliseconds>(now - g_last_clock_seen).count();
+        if (quiet > 500) return MOVE_CLOCK_STATUS_STOPPED;
+    }
+    return g_clock_status.load();
+}
+
+/* ---------------------------------------------------------------------------
+ * Output
+ * ------------------------------------------------------------------------- */
+static void send_out(const uint8_t (*msgs)[3], const int *lens, int n) {
+    if (!g_out) return;
+    for (int i = 0; i < n; i++) {
+        std::vector<unsigned char> m(msgs[i], msgs[i] + lens[i]);
+        uint8_t st = m[0] & 0xF0;
+        if (st == 0x80 || st == 0x90 || st == 0xA0 || st == 0xB0 ||
+            st == 0xC0 || st == 0xD0 || st == 0xE0) {
+            m[0] = st | (uint8_t)g_out_ch;   /* rewrite channel nibble */
+        }
+        try { g_out->sendMessage(&m); } catch (...) {}
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * CC -> set_param
+ * ------------------------------------------------------------------------- */
+static void apply_cc(int param_idx, int value /* 0..127 */) {
+    const ParamSpec &p = PARAMS[param_idx];
+    char buf[32];
+
+    switch (p.kind) {
+        case 'w':                                  /* generate / mutate */
+            if (value < 64) return;                /* only the press, not the release */
+            std::snprintf(buf, sizeof(buf), "go");
+            break;
+        case 'f': {
+            double v = p.lo + (p.hi - p.lo) * (value / 127.0);
+            std::snprintf(buf, sizeof(buf), "%.4f", v);
+            break;
+        }
+        case 'i': {
+            long v = std::lround(p.lo + (p.hi - p.lo) * (value / 127.0));
+            std::snprintf(buf, sizeof(buf), "%ld", v);
+            break;
+        }
+        case 'e': {
+            int n = (int)(p.hi - p.lo) + 1;        /* option count */
+            int idx = (int)std::lround((value / 127.0) * (n - 1));
+            if (idx < 0) idx = 0;
+            if (idx > n - 1) idx = n - 1;
+            std::snprintf(buf, sizeof(buf), "%d", idx);
+            break;
+        }
+        default: return;
+    }
+
+    std::lock_guard<std::mutex> lk(g_lock);
+    g_api->set_param(g_inst, p.key, buf);
+    if (g_verbose) std::fprintf(stderr, "[acid] set %-11s = %s  (cc %d = %d)\n", p.key, buf, p.default_cc, value);
+}
+
+/* ---------------------------------------------------------------------------
+ * Clock tracking
+ * ------------------------------------------------------------------------- */
+static void note_clock_pulse(void) {
+    auto now = std::chrono::steady_clock::now();
+    g_last_clock_seen = now;
+    if (g_have_last_pulse) {
+        double us = std::chrono::duration_cast<std::chrono::microseconds>(now - g_last_pulse).count();
+        if (us > 200.0 && us < 200000.0) {              /* 5 BPM .. ~1250 BPM sanity */
+            if (g_pulse_ema_us <= 0.0) g_pulse_ema_us = us;
+            else g_pulse_ema_us += (us - g_pulse_ema_us) * 0.12;
+            double bpm = 60.0e6 / (g_pulse_ema_us * 24.0);
+            if (bpm > 20.0 && bpm < 400.0) g_bpm.store((float)bpm);
+        }
+    }
+    g_last_pulse = now;
+    g_have_last_pulse = true;
+}
+
+/* ---------------------------------------------------------------------------
+ * RtMidi input callback
+ * ------------------------------------------------------------------------- */
+static void on_midi(double /*dt*/, std::vector<unsigned char> *msg, void * /*ud*/) {
+    if (!msg || msg->empty()) return;
+    const uint8_t *b = msg->data();
+    int len = (int)msg->size();
+    uint8_t status = b[0];
+    uint8_t type   = status & 0xF0;
+    uint8_t chan   = status & 0x0F;
+
+    uint8_t out[MIDI_FX_MAX_OUT_MSGS][3];
+    int     olen[MIDI_FX_MAX_OUT_MSGS];
+
+    /* --- realtime / transport: hand straight to the core (it already knows
+     *     0xF8/0xFA/0xFB/0xFC) and also update our BPM + status view. --- */
+    if (status == 0xF8) {
+        note_clock_pulse();
+        int n;
+        { std::lock_guard<std::mutex> lk(g_lock);
+          n = g_api->process_midi(g_inst, b, len, out, olen, MIDI_FX_MAX_OUT_MSGS); }
+        send_out(out, olen, n);
+        return;
+    }
+    if (status == 0xFA || status == 0xFB) {          /* Start / Continue */
+        g_clock_status.store(MOVE_CLOCK_STATUS_RUNNING);
+        g_last_clock_seen = std::chrono::steady_clock::now();
+        int n;
+        { std::lock_guard<std::mutex> lk(g_lock);
+          n = g_api->process_midi(g_inst, b, len, out, olen, MIDI_FX_MAX_OUT_MSGS); }
+        send_out(out, olen, n);
+        return;
+    }
+    if (status == 0xFC) {                            /* Stop */
+        g_clock_status.store(MOVE_CLOCK_STATUS_STOPPED);
+        g_have_last_pulse = false;
+        int n;
+        { std::lock_guard<std::mutex> lk(g_lock);
+          n = g_api->process_midi(g_inst, b, len, out, olen, MIDI_FX_MAX_OUT_MSGS); }
+        send_out(out, olen, n);
+        return;
+    }
+    if (status >= 0xF0) return;                      /* other system msgs: ignore */
+
+    /* --- channel voice messages: only the control channel matters --- */
+    if (chan != (uint8_t)g_ctrl_ch) return;
+
+    if (type == 0xB0 && len >= 3) {                  /* Control Change */
+        auto it = g_cc2param.find(b[1]);
+        if (it != g_cc2param.end()) { apply_cc(it->second, b[2]); return; }
+        if (!g_forward_unmapped) return;
+        /* fall through: forward unmapped CC to the synth */
+    }
+
+    /* Notes (transpose), plus any pass-through the core chooses to do. */
+    int n;
+    { std::lock_guard<std::mutex> lk(g_lock);
+      n = g_api->process_midi(g_inst, b, len, out, olen, MIDI_FX_MAX_OUT_MSGS); }
+    send_out(out, olen, n);
+}
+
+/* ---------------------------------------------------------------------------
+ * Timer thread — stands in for the Schwung audio-block tick.
+ * Feeds acid_tick() the real elapsed sample count so internal free-run tempo
+ * stays accurate under scheduler jitter; when Force clock is present the
+ * core's 0xF8 path drives stepping and this only does gate-off bookkeeping.
+ * ------------------------------------------------------------------------- */
+static void timer_loop() {
+    using clock = std::chrono::steady_clock;
+    auto prev = clock::now();
+    const auto period = std::chrono::microseconds(2902);   /* 128 / 44100 s */
+
+    while (g_run.load()) {
+        std::this_thread::sleep_for(period);
+        auto now = clock::now();
+        double secs = std::chrono::duration_cast<std::chrono::duration<double>>(now - prev).count();
+        prev = now;
+        int frames = (int)std::lround(secs * MOVE_SAMPLE_RATE);
+        if (frames < 1)    frames = 1;
+        if (frames > 44100) frames = 44100;             /* clamp a huge stall */
+
+        uint8_t out[MIDI_FX_MAX_OUT_MSGS][3];
+        int     olen[MIDI_FX_MAX_OUT_MSGS];
+        int n;
+        { std::lock_guard<std::mutex> lk(g_lock);
+          n = g_api->tick(g_inst, frames, MOVE_SAMPLE_RATE, out, olen, MIDI_FX_MAX_OUT_MSGS); }
+        send_out(out, olen, n);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Config file: lines of "key = CC", '#' comments. Lets users re-map CCs and
+ * a couple of options without a rebuild. Unknown keys are ignored.
+ * ------------------------------------------------------------------------- */
+static void load_config(const char *path) {
+    FILE *f = std::fopen(path, "r");
+    if (!f) return;
+    char line[256];
+    while (std::fgets(line, sizeof(line), f)) {
+        char *hash = std::strchr(line, '#'); if (hash) *hash = 0;
+        char key[64]; int val;
+        if (std::sscanf(line, " %63[a-zA-Z_] = %d", key, &val) != 2) continue;
+        if (!std::strcmp(key, "control_channel")) { g_ctrl_ch = (val - 1) & 0x0F; continue; }
+        if (!std::strcmp(key, "output_channel"))  { g_out_ch  = (val - 1) & 0x0F; continue; }
+        if (!std::strcmp(key, "forward_unmapped")){ g_forward_unmapped = (val != 0); continue; }
+        for (int i = 0; i < N_PARAMS; i++) {
+            if (!std::strcmp(key, PARAMS[i].key)) {
+                if (val >= 0 && val <= 127) g_cc2param[val] = i;
+                break;
+            }
+        }
+    }
+    std::fclose(f);
+}
+
+/* ---------------------------------------------------------------------------
+ * main
+ * ------------------------------------------------------------------------- */
+static void on_signal(int) { g_run.store(false); }
+
+static void usage(const char *me) {
+    std::fprintf(stderr,
+        "usage: %s [options]\n"
+        "  -v                    verbose (log every param change)\n"
+        "  --client NAME         ALSA client name         (default: Mockba Acid)\n"
+        "  --control-channel N   1-16, CC + note-in       (default: 1)\n"
+        "  --out-channel N       1-16, generated notes    (default: 1)\n"
+        "  --bpm N               starting BPM before clock (default: 120)\n"
+        "  --config PATH         CC-map / channel overrides\n"
+        "  --no-forward          drop unmapped CC instead of passing to the synth\n",
+        me);
+}
+
+int main(int argc, char **argv) {
+    std::string client = "Mockba Acid";
+    const char *cfg = nullptr;
+    float bpm0 = 120.0f;
+
+    for (int i = 1; i < argc; i++) {
+        std::string a = argv[i];
+        if      (a == "-v")                 g_verbose = true;
+        else if (a == "--no-forward")       g_forward_unmapped = false;
+        else if (a == "--client"          && i + 1 < argc) client   = argv[++i];
+        else if (a == "--control-channel" && i + 1 < argc) g_ctrl_ch = (std::atoi(argv[++i]) - 1) & 0x0F;
+        else if (a == "--out-channel"     && i + 1 < argc) g_out_ch  = (std::atoi(argv[++i]) - 1) & 0x0F;
+        else if (a == "--bpm"             && i + 1 < argc) bpm0     = (float)std::atof(argv[++i]);
+        else if (a == "--config"          && i + 1 < argc) cfg      = argv[++i];
+        else { usage(argv[0]); return a == "-h" || a == "--help" ? 0 : 2; }
+    }
+
+    for (int i = 0; i < N_PARAMS; i++) g_cc2param[PARAMS[i].default_cc] = i;
+    if (cfg) load_config(cfg);
+    g_bpm.store(bpm0);
+
+    /* --- core --- */
+    static host_api_v1_t host = { host_get_bpm, host_get_clock_status };
+    g_api = move_midi_fx_init(&host);
+    if (!g_api || g_api->api_version != MIDI_FX_API_VERSION) {
+        std::fprintf(stderr, "[acid] core init failed\n"); return 1;
+    }
+    g_inst = g_api->create_instance(".", nullptr);
+    if (!g_inst) { std::fprintf(stderr, "[acid] create_instance failed\n"); return 1; }
+
+    /* --- MIDI ports --- */
+    RtMidiIn *in = nullptr;
+    try {
+        in = new RtMidiIn(RtMidi::UNSPECIFIED, client, 256);
+        g_out = new RtMidiOut(RtMidi::UNSPECIFIED, client);
+        in->openVirtualPort("In");
+        g_out->openVirtualPort("Out");
+        in->ignoreTypes(true, false, true);   /* sysex off, TIMING ON, sensing off */
+        in->setCallback(&on_midi, nullptr);
+    } catch (RtMidiError &e) {
+        std::fprintf(stderr, "[acid] MIDI setup failed: %s\n", e.getMessage().c_str());
+        return 1;
+    }
+
+    std::signal(SIGINT,  on_signal);
+    std::signal(SIGTERM, on_signal);
+
+    std::fprintf(stderr,
+        "[acid] up. ports '%s:In' / '%s:Out'  ctrl ch %d  out ch %d\n"
+        "[acid] connect Force transport SYNC+CLOCK to '%s:In', route a MIDI track\n"
+        "[acid] to it on ch %d for CC control, and a synth track FROM '%s:Out'.\n",
+        client.c_str(), client.c_str(), g_ctrl_ch + 1, g_out_ch + 1,
+        client.c_str(), g_ctrl_ch + 1, client.c_str());
+
+    std::thread timer(timer_loop);
+
+    while (g_run.load()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    /* --- shutdown: silence, then tear down --- */
+    timer.join();
+    {
+        std::lock_guard<std::mutex> lk(g_lock);
+        for (int note = 0; note < 128; note++) {
+            std::vector<unsigned char> off = { (unsigned char)(0x80 | g_out_ch), (unsigned char)note, 0 };
+            try { g_out->sendMessage(&off); } catch (...) {}
+        }
+        g_api->destroy_instance(g_inst);
+    }
+    delete in;
+    delete g_out;
+    std::fprintf(stderr, "[acid] bye\n");
+    return 0;
+}

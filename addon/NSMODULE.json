@@ -1,0 +1,15 @@
+{
+  "NAME": "Force Acid",
+  "DESCRIPTION": "Dual generative acid-bassline MIDI sequencer (port of the Schwung 'Acid' module for Ableton Move).\nHeadless: control it from a Force MIDI track via CC. See README.txt / CC-MAP.md.",
+  "PROCESSNAME": "force-acid",
+  "DIRNAME": "ForceAcid",
+  "FILENAME": "force-acid",
+  "BACKGROUND": true,
+  "AUTOLAUNCHABLE": true,
+  "ARGUMENTS": [
+    {
+      "NAME": "verbose param logging",
+      "VALUE": "-v"
+    }
+  ]
+}

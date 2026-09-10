@@ -1,0 +1,39 @@
+# force-acid.conf  — optional. Copy to  force-acid.conf  next to the binary
+# (the run script picks it up automatically) to override CCs / channels
+# without rebuilding. Lines are  key = number , '#' starts a comment.
+
+# --- channels (1-16) --------------------------------------------------------
+control_channel = 1      # CC + note-in that force-acid listens on
+output_channel  = 1      # channel the generated notes go out on
+forward_unmapped = 1     # 1 = pass CCs we don't use through to the synth, 0 = drop
+
+# --- CC map (0-127). Defaults shown; uncomment to change. ------------------
+# Block A = Sequence A, Block B = Sequence B, then Global. Matches the three
+# 8-knob pages of the Move version. See docs/CC-MAP.md.
+
+# a_generate = 20
+# a_mutate   = 21
+# a_density  = 22
+# a_accent   = 23
+# a_slide    = 24
+# a_octaves  = 25
+# a_length   = 26
+# a_gate     = 27
+
+# b_generate = 40
+# b_mutate   = 41
+# b_density  = 42
+# b_accent   = 43
+# b_slide    = 44
+# b_octaves  = 45
+# b_length   = 46
+# b_gate     = 47
+
+# scale      = 50
+# root       = 51
+# b_tune     = 52
+# blend      = 53
+# a_algo     = 54
+# b_algo     = 55
+# reset_bars = 56
+# swing      = 57
