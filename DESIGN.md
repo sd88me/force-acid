@@ -105,16 +105,27 @@ Force userland: `ELF 32-bit LSB, ARM EABI5, /lib/ld-linux-armhf.so.3`,
 "for GNU/Linux 3.2.0". Euclidier and the other addons top out at `GLIBC_2.4` /
 `GLIBCXX_3.4.21` (≈ GCC 5.1).
 
-`scripts/Dockerfile` uses **Debian Buster** (glibc 2.28, GCC 8) cross
-(`g++-arm-linux-gnueabihf`) and **statically links libstdc++ / libgcc**, so the
-compiler's C++ runtime never has to match the device. `libasound`, `libc`,
-`libpthread` stay dynamic and resolve on-device.
+`scripts/Dockerfile` + `scripts/build.sh` build **natively for armhf inside a
+QEMU-emulated `arm32v7/debian:buster` container** (`--platform linux/arm/v7`) —
+`apt install g++ libasound2-dev`, plain `gcc`/`g++`, dynamic link. Same shape as
+Euclidier's `compile_pi.sh`, just on emulated hardware instead of a real Pi.
+Chosen over a cross toolchain because the cross package ships no armhf ALSA and
+RtMidi's ALSA backend needs `<alsa/asoundlib.h>` + `-lasound`; native armhf
+gets both from one `apt` line, and glibc/GLIBCXX are automatically the device's
+ABI family.
 
-Fallbacks if a glibc-version link/run error appears:
-- build armhf-native on Raspberry Pi OS 32-bit (this is how Euclidier is built —
-  `compile_pi.sh`), or
-- `apt`-install `g++` on the Force itself over SSH (writable `/usr` overlay) and
-  build there.
+Buster armhf = glibc 2.28 / GCC 8. `build.sh` prints the highest `GLIBC_*`
+symbol version the binary actually needs — expect ≤ 2.28, ideally ≤ 2.19.
+
+Emulation: Docker Desktop registers binfmt automatically. On a bare Linux
+dockerd, run once:
+`docker run --rm --privileged multiarch/qemu-user-static --reset -p yes`.
+
+Fallbacks if the binary still won't run on the Force (`GLIBC_2.xx not found`):
+- older base — `arm32v7/debian:stretch` (glibc 2.24) — one line in the Dockerfile
+- build on a real Raspberry Pi OS 32-bit (`compile_pi.sh` style), or
+- `apt`-install `g++`/`libasound2-dev` on the Force itself over SSH (the `/usr`
+  overlay is writable) and compile there.
 
 ## Dependencies
 

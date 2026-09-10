@@ -14,7 +14,7 @@
  *
  * acid_core.c is unchanged. Everything Force-specific lives here.
  *
- * Build: see scripts/build.sh (cross-compiles armhf, links -lasound -lpthread).
+ * Build: see scripts/build.sh (native armhf under QEMU, links -lasound -lpthread).
  */
 
 #include <atomic>

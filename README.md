@@ -29,7 +29,7 @@ src/
   host_shim.cpp      RtMidi virtual ports, CC→set_param, clock/BPM, timer, main()
   rtmidi/            vendored RtMidi 6 (ALSA backend)
 addon/               MockbaMod addon: NSMODULE.json, manage.sh, run/conf, README
-scripts/             Dockerfile (armhf cross), build.sh, install.sh
+scripts/             Dockerfile (armhf-native under QEMU), build.sh, install.sh
 docs/                CC-MAP.md, capture-xtk.md
 tests/               native smoke test for the generator logic
 ```
