@@ -61,7 +61,10 @@ web/                 browser control panel (TD-3-MO styled), server.py + static/
 - If you have the **nodeServer** AddOn installed, its home page now has a
   "Force Acid" link straight to the panel (see nodeServer's `ENDPOINTS.js` —
   points at a small redirect endpoint, `forceacid.js`, rather than a plain
-  link, because nodeServer's own link renderer mangles absolute URLs).
+  link, because nodeServer's own link renderer mangles absolute URLs). See
+  [`nodeserver-integration/README.md`](nodeserver-integration/README.md)
+  for exactly what's patched and where — this touches nodeServer's own
+  files directly, so it's not something `git clone` alone reproduces.
 
 ## Web control panel
 
