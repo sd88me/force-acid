@@ -1,11 +1,15 @@
 # Force Acid — CC map
 
 Control channel: **1** by default (`control_channel` in `force-acid.conf`, or
-`--control-channel`). Output channel: **1** (`output_channel` / `--out-channel`).
+`--control-channel`). Output is now **two independent channels**, one per
+sequencer (`a_channel`/`b_channel`, default **1** for both — see "Per-sequence
+output channel" below) — this replaces the old single `output_channel`/
+`--out-channel` concept entirely.
 
 CC numbers are chosen to sit clear of the ranges MockbaMod's MidiLoop docs warn
-about (0, 1, 32, 64, 121+). Three contiguous blocks, one per page of the Move
-version's UI, eight controls each.
+about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A, Seq B, and Global
+(now split into the original 8 knobs plus an Advanced block moved out to
+70-79 to make room for each sequencer's own new Advanced controls).
 
 | Page | CC | Param | Wire range → value | Notes |
 |---|---|---|---|---|
@@ -17,6 +21,9 @@ version's UI, eight controls each.
 | | 25 | `a_octaves` | 0–127 → 1–3 | |
 | | 26 | `a_length` | 0–127 → 2–32 | takes effect immediately |
 | | 27 | `a_gate` | 0–127 → 0.05–1.00 | live |
+| | 28 | `a_channel` | 0–127 → 1–16 | **FORCE-ONLY**, no Move equivalent |
+| | 29 | `a_offset` | 0–127 → 0–31 | read-side rotation, clamped to `< a_length` |
+| | 30 | `a_dir` | 0–127 → 0–2 | Fwd / Rev / Pendulum |
 | **Seq B** | 40 | `b_generate` | ≥64 fires | |
 | | 41 | `b_mutate` | ≥64 fires | |
 | | 42 | `b_density` | 0–127 → 0.00–1.00 | |
@@ -25,29 +32,56 @@ version's UI, eight controls each.
 | | 45 | `b_octaves` | 0–127 → 1–3 | |
 | | 46 | `b_length` | 0–127 → 2–32 | |
 | | 47 | `b_gate` | 0–127 → 0.05–1.00 | |
-| **Global** | 50 | `scale` | 0–127 → 0–5 | Minor, Phrygian, HarmMinor, MinPent, Dorian, Major |
-| | 51 | `root` | 0–127 → 0–11 | C … B |
-| | 52 | `b_tune` | 0–127 → −24…+24 | Seq B interval from Seq A, semitones |
-| | 53 | `blend` | 0–127 → −63…+64 | −63 = A only, 0 = both, +64 = B only |
-| | 54 | `a_algo` | 0–127 → 1–16 | 1 = pure primary, 16 = mostly secondary |
-| | 55 | `b_algo` | 0–127 → 1–16 | |
-| | 56 | `reset_bars` | 0–127 → 0–4 | 1 / 2 / 4 / 8 bars, Off |
-| | 57 | `swing` | 0–127 → 50–75 | 50 straight, 66 triplet, 75 max |
+| | 48 | `b_channel` | 0–127 → 1–16 | **FORCE-ONLY**, no Move equivalent |
+| | 49 | `b_offset` | 0–127 → 0–31 | read-side rotation, clamped to `< b_length` |
+| | 50 | `b_dir` | 0–127 → 0–2 | Fwd / Rev / Pendulum |
+| **Global** | 70 | `scale` | 0–127 → 0–11 | 12 options, see below |
+| | 71 | `root` | 0–127 → 0–11 | C … B |
+| | 72 | `b_tune` | 0–127 → −24…+24 | Seq B interval from Seq A, semitones |
+| | 73 | `blend` | 0–127 → −63…+64 | −63 = A only, 0 = both, +64 = B only. Still applies on top of per-channel output — it's a velocity crossfade, not a routing switch |
+| | 74 | `a_algo` | 0–127 → 1–16 | 1 = pure primary, 16 = mostly secondary |
+| | 75 | `b_algo` | 0–127 → 1–16 | |
+| | 76 | `reset_bars` | 0–127 → 0–4 | 1 / 2 / 4 / 8 bars, Off (default) |
+| | 77 | `swing` | 0–127 → 50–75 | 50 straight, 66 triplet, 75 max |
+| | 78 | `jitter` | 0–127 → 0.00–1.00 | per-tick chance of perturbing *which* step plays, never *when* |
+| | 79 | `auto_gen` | 0–127 → 0–6 | Off / 1 / 2 / 4 / 8 / 16 / 32 bars — periodic auto re-Generate, both seqs |
+
+## Per-sequence output channel (FORCE-ONLY)
+
+Move's chain host forces every MIDI FX slot onto one output channel — that's
+why upstream schwung-acid has Blend instead of real A/B routing. Force's own
+host (`host_shim.cpp`, a standalone process, not a chain slot) has no such
+restriction, so `a_channel`/`b_channel` give each sequencer its own
+independently-selectable MIDI output channel, same as the original tb3po's
+two separate Tool-slot outputs. Point Seq A and Seq B at two different Force
+instrument tracks and mix them with the Force's own mixer, and/or keep them
+on one channel and use Blend as before — both work together, Blend doesn't
+go away.
+
+Startup defaults (before any CC arrives) come from `--a-channel`/`--b-channel`
+or `a_channel =`/`b_channel =` in `force-acid.conf` — both default to **1**,
+matching the old single-channel behaviour until you separate them.
 
 ## Enum landing points
 
-For the enum params the wire value is quantised to the nearest option index, so
-the useful CC values are:
+For the enum params the wire value is quantised to the nearest option index,
+so the useful CC values are:
 
-- **scale** (6): 0, 25, 51, 76, 102, 127
+- **scale** (12): 0, 12, 23, 35, 46, 58, 69, 81, 92, 104, 115, 127 —
+  Minor, Phrygian, HarmMinor, MinPent, Dorian, Major, PhrygDom, Locrian,
+  WholeTone, HungMinor, MinBlues, Chromatic
 - **root** (12): 0, 12, 23, 35, 46, 58, 69, 81, 92, 104, 115, 127
-- **reset_bars** (5): 0, 32, 64, 95, 127  (127 = Off)
+- **reset_bars** (5): 0, 32, 64, 95, 127 (127 = Off, the default)
+- **a_dir / b_dir** (3): 0, 64, 127 — Fwd, Rev, Pendulum
+- **auto_gen** (7): 0, 21, 42, 64, 85, 106, 127 — Off, 1, 2, 4, 8, 16, 32 bars
 
 ## Note input
 
 Note-on on the control channel **transposes** both sequencers, C4 (note 60) =
 no shift, clamped ±48 semitones. Note-off is swallowed. Acid does not pass
-played notes through to the synth — it only generates.
+played notes through to the synth — it only generates. Transpose is a single
+shared control, unaffected by `a_channel`/`b_channel` — it moves both
+sequencers together regardless of which channel(s) they're on.
 
 ## Not mapped yet
 

@@ -6,27 +6,33 @@
       "lines": [
         "Two generative acid",
         "sequencers, blended",
-        "into one output.",
+        "into one MIDI stream.",
         "",
-        "Both run on Move's",
-        "clock continuously.",
+        "Headless - no on-",
+        "screen GUI. Driven",
+        "by Force's transport",
+        "and CC from a Force",
+        "MIDI track.",
         "",
-        "Play a note to",
+        "Play a note on the",
+        "control track to",
         "transpose live",
-        "(C4 = no shift).",
-        "Root knob sets the",
-        "key it plays in."
+        "(C4 = no shift)."
       ]
     },
     {
       "title": "Quick Start",
       "lines": [
-        "1) Insert Acid in a",
-        " MIDI FX slot.",
-        "2) Route to a synth.",
-        "3) Press Play.",
-        "4) Set Root, or play",
-        " a note to transpose."
+        "1) Prefs>MIDI: enable",
+        " Sync+Track on",
+        " Mockba Acid In,",
+        " Track on ...Out.",
+        "2) MIDI track ->",
+        " Mockba Acid In,",
+        " ch 1, sends CC.",
+        "3) Synth track <-",
+        " Mockba Acid Out.",
+        "4) Press Play."
       ]
     },
     {
@@ -34,9 +40,10 @@
       "lines": [
         "Generate: fresh",
         "reroll from a new",
-        "seed.",
+        "seed. (CC >=64)",
         "Mutate: nudge ~25%",
-        "of the steps.",
+        "of the steps. (CC",
+        ">=64)",
         "Density/Accent/",
         "Slide: per-step",
         "probabilities.",
@@ -87,6 +94,17 @@
         "pyramid-shaped",
         "accents. In between",
         "blends the two."
+      ]
+    },
+    {
+      "title": "CC Map",
+      "lines": [
+        "Control channel 1",
+        "by default - see",
+        "README.txt / CC-",
+        "MAP.md, or edit",
+        "force-acid.conf to",
+        "remap."
       ]
     }
   ]

@@ -2,3 +2,5 @@
 *.o
 *.so
 /scratch/
+__pycache__/
+*.pyc

@@ -13,7 +13,7 @@
 # the Check-Valid-Until=false below. If a binary built here still won't run on
 # the Force ("GLIBC_2.xx not found"), the fallback is an even older armhf base
 # (arm32v7/debian:stretch) or building on the Force itself — see DESIGN.md.
-FROM arm32v7/debian:buster
+FROM arm32v7/debian:stretch
 
 RUN sed -i 's|deb.debian.org|archive.debian.org|g; /debian-security/d; /-updates/d' /etc/apt/sources.list \
     && apt-get -o Acquire::Check-Valid-Until=false update \

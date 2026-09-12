@@ -10,9 +10,14 @@
  *   set_param(key, "0.42") from knobs    CC on the control channel -> set_param()
  *   host->get_bpm()                      estimated from incoming 0xF8 clock
  *   host->get_clock_status()             transport state (0xFA/0xFC) + clock life
- *   one hard-wired output channel        --out-channel (low nibble rewrite)
+ *   one hard-wired output channel        a_channel/b_channel, set IN THE CORE now
  *
- * acid_core.c is unchanged. Everything Force-specific lives here.
+ * acid_core.c is verbatim from schwung-acid except for one small, clearly
+ * marked (grep FORCE-ONLY) addition: independent a_channel/b_channel per
+ * sequencer, since this shim -- unlike Move's chain host -- doesn't force
+ * everything onto one channel. The shim no longer rewrites the channel
+ * nibble on the way out (see send_out()) -- the core stamps the final
+ * channel on every message it emits now.
  *
  * Build: see scripts/build.sh (native armhf under QEMU, links -lasound -lpthread).
  */
@@ -59,6 +64,9 @@ static const ParamSpec PARAMS[] = {
     { "a_octaves",    'i',   1,     3,     25 },
     { "a_length",     'f',   2,     32,    26 },
     { "a_gate",       'f',   0.05,  1.0,   27 },
+    { "a_channel",    'i',   1,     16,    28 },   /* FORCE-ONLY: no Move equivalent */
+    { "a_offset",     'f',   0,     31,    29 },
+    { "a_dir",        'e',   0,     2,     30 },   /* 3 options: Fwd/Rev/Pendulum */
 
     { "b_generate",   'w',   0,     1,     40 },
     { "b_mutate",     'w',   0,     1,     41 },
@@ -68,15 +76,22 @@ static const ParamSpec PARAMS[] = {
     { "b_octaves",    'i',   1,     3,     45 },
     { "b_length",     'f',   2,     32,    46 },
     { "b_gate",       'f',   0.05,  1.0,   47 },
+    { "b_channel",    'i',   1,     16,    48 },   /* FORCE-ONLY: no Move equivalent */
+    { "b_offset",     'f',   0,     31,    49 },
+    { "b_dir",        'e',   0,     2,     50 },   /* 3 options: Fwd/Rev/Pendulum */
 
-    { "scale",        'e',   0,     5,     50 },   /* 6 options  */
-    { "root",         'e',   0,     11,    51 },   /* 12 options */
-    { "b_tune",       'i',  -24,    24,    52 },
-    { "blend",        'i',  -63,    64,    53 },
-    { "a_algo",       'i',   1,     16,    54 },
-    { "b_algo",       'i',   1,     16,    55 },
-    { "reset_bars",   'e',   0,     4,     56 },   /* 5 options  */
-    { "swing",        'f',   50,    75,    57 },
+    /* Global block moved to 70-79 (was 50-57) to make room for the two
+     * per-seq Advanced blocks above without colliding -- see docs/CC-MAP.md. */
+    { "scale",        'e',   0,     11,    70 },   /* 12 options (v1.1 curated set) */
+    { "root",         'e',   0,     11,    71 },   /* 12 options */
+    { "b_tune",       'i',  -24,    24,    72 },
+    { "blend",        'i',  -63,    64,    73 },
+    { "a_algo",       'i',   1,     16,    74 },
+    { "b_algo",       'i',   1,     16,    75 },
+    { "reset_bars",   'e',   0,     4,     76 },   /* 5 options  */
+    { "swing",        'f',   50,    75,    77 },
+    { "jitter",       'f',   0.0,   1.0,   78 },
+    { "auto_gen",     'e',   0,     6,     79 },   /* 7 options: Off + 6 bar counts */
 };
 static const int N_PARAMS = (int)(sizeof(PARAMS) / sizeof(PARAMS[0]));
 
@@ -90,9 +105,17 @@ static void              *g_inst = nullptr;
 static RtMidiOut         *g_out  = nullptr;
 
 static int   g_ctrl_ch     = 0;            /* 0-based control channel (default 1) */
-static int   g_out_ch      = 0;            /* 0-based output channel  (default 1) */
 static bool  g_verbose     = false;
 static bool  g_forward_unmapped = true;    /* pass CC/PB/PC we don't consume to the synth */
+
+/* FORCE-ONLY: initial a_channel/b_channel (1-16, matches the wire convention),
+ * from --a-channel/--b-channel or a_channel=/b_channel= in --config. Pushed
+ * into the core via set_param right after create_instance() -- these are
+ * core params (acid_seq_t.out_ch), not shim-level routing, so they can't be
+ * applied until the instance exists. Default "1" for both matches the old
+ * single-channel behaviour until a user explicitly separates them. */
+static std::string g_init_a_channel = "1";
+static std::string g_init_b_channel = "1";
 
 /* CC -> param index, built at startup from PARAMS[].default_cc + config file. */
 static std::unordered_map<int, int> g_cc2param;
@@ -123,16 +146,71 @@ static int host_get_clock_status(void) {
 /* ---------------------------------------------------------------------------
  * Output
  * ------------------------------------------------------------------------- */
+/* No channel rewrite here anymore: acid_core.c now stamps the correct final
+ * channel on every message it emits (a_channel/b_channel per sequencer, via
+ * the FORCE-ONLY out_ch field -- see acid_core.c's file header), so the shim
+ * just forwards bytes as given. */
 static void send_out(const uint8_t (*msgs)[3], const int *lens, int n) {
     if (!g_out) return;
     for (int i = 0; i < n; i++) {
         std::vector<unsigned char> m(msgs[i], msgs[i] + lens[i]);
-        uint8_t st = m[0] & 0xF0;
-        if (st == 0x80 || st == 0x90 || st == 0xA0 || st == 0xB0 ||
-            st == 0xC0 || st == 0xD0 || st == 0xE0) {
-            m[0] = st | (uint8_t)g_out_ch;   /* rewrite channel nibble */
-        }
         try { g_out->sendMessage(&m); } catch (...) {}
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * v0.2: parameter feedback -- CC out on FEEDBACK_CHANNEL, same CC numbers as
+ * input, so anything listening on Mockba Acid:Out (the web panel, a hardware
+ * controller with motorized/LED feedback, another Force track) can display
+ * the engine's TRUE current value instead of just "whatever this client last
+ * sent". Sent after every CC-in that actually changes a param, and broadcast
+ * in full periodically so a freshly-connected listener converges without
+ * needing to ask for it. No Move equivalent -- FORCE-ONLY, like a_channel/
+ * b_channel.
+ * ------------------------------------------------------------------------- */
+#define FEEDBACK_CHANNEL 15   /* 0-based -- MIDI channel 16 */
+
+/* readback is what get_param returned: an index string for 'e', a numeric
+ * value string for 'f'/'i'. Converts back to a 0-127 wire value. Caller
+ * already excluded 'w' (no persistent value to report). */
+static int wire_from_readback(const ParamSpec &p, const char *readback) {
+    double wire;
+    if (p.kind == 'e') {
+        int idx = std::atoi(readback);
+        int n = (int)(p.hi - p.lo) + 1;
+        wire = (n > 1) ? (idx / (double)(n - 1)) * 127.0 : 0.0;
+    } else {
+        double val = std::atof(readback);
+        double span = p.hi - p.lo;
+        wire = (span > 0.0) ? ((val - p.lo) / span) * 127.0 : 0.0;
+    }
+    int w = (int)std::lround(wire);
+    if (w < 0) w = 0;
+    if (w > 127) w = 127;
+    return w;
+}
+
+static void send_feedback_cc(int cc, int wire) {
+    if (!g_out) return;
+    std::vector<unsigned char> m = {
+        (unsigned char)(0xB0 | FEEDBACK_CHANNEL), (unsigned char)cc, (unsigned char)wire
+    };
+    try { g_out->sendMessage(&m); } catch (...) {}
+}
+
+/* Full-state broadcast -- every non-momentary param, read fresh from the
+ * core. Called once at startup (after the initial a_channel/b_channel push)
+ * and periodically from the timer thread. */
+static void send_all_feedback() {
+    char readback[32];
+    for (int i = 0; i < N_PARAMS; i++) {
+        const ParamSpec &p = PARAMS[i];
+        if (p.kind == 'w') continue;
+        int n;
+        { std::lock_guard<std::mutex> lk(g_lock);
+          n = g_api->get_param(g_inst, p.key, readback, sizeof(readback)); }
+        if (n <= 0) continue;
+        send_feedback_cc(p.default_cc, wire_from_readback(p, readback));
     }
 }
 
@@ -169,9 +247,15 @@ static void apply_cc(int param_idx, int value /* 0..127 */) {
         default: return;
     }
 
-    std::lock_guard<std::mutex> lk(g_lock);
-    g_api->set_param(g_inst, p.key, buf);
+    char readback[32];
+    int readback_len = -1;
+    {
+        std::lock_guard<std::mutex> lk(g_lock);
+        g_api->set_param(g_inst, p.key, buf);
+        if (p.kind != 'w') readback_len = g_api->get_param(g_inst, p.key, readback, sizeof(readback));
+    }
     if (g_verbose) std::fprintf(stderr, "[acid] set %-11s = %s  (cc %d = %d)\n", p.key, buf, p.default_cc, value);
+    if (readback_len > 0) send_feedback_cc(p.default_cc, wire_from_readback(p, readback));
 }
 
 /* ---------------------------------------------------------------------------
@@ -263,7 +347,9 @@ static void on_midi(double /*dt*/, std::vector<unsigned char> *msg, void * /*ud*
 static void timer_loop() {
     using clock = std::chrono::steady_clock;
     auto prev = clock::now();
+    auto last_feedback = clock::now();
     const auto period = std::chrono::microseconds(2902);   /* 128 / 44100 s */
+    const auto feedback_period = std::chrono::seconds(2);
 
     while (g_run.load()) {
         std::this_thread::sleep_for(period);
@@ -280,6 +366,15 @@ static void timer_loop() {
         { std::lock_guard<std::mutex> lk(g_lock);
           n = g_api->tick(g_inst, frames, MOVE_SAMPLE_RATE, out, olen, MIDI_FX_MAX_OUT_MSGS); }
         send_out(out, olen, n);
+
+        /* v0.2: periodic full-state feedback broadcast, so a freshly-opened
+         * web panel (or any other late-connecting listener) converges to the
+         * true current state within a couple of seconds, not just on the
+         * one-time startup broadcast in main(). */
+        if (now - last_feedback >= feedback_period) {
+            last_feedback = now;
+            send_all_feedback();
+        }
     }
 }
 
@@ -296,7 +391,14 @@ static void load_config(const char *path) {
         char key[64]; int val;
         if (std::sscanf(line, " %63[a-zA-Z_] = %d", key, &val) != 2) continue;
         if (!std::strcmp(key, "control_channel")) { g_ctrl_ch = (val - 1) & 0x0F; continue; }
-        if (!std::strcmp(key, "output_channel"))  { g_out_ch  = (val - 1) & 0x0F; continue; }
+        if (!std::strcmp(key, "a_channel")) {       /* FORCE-ONLY: pushed into the core after create_instance */
+            int v = val < 1 ? 1 : (val > 16 ? 16 : val);
+            g_init_a_channel = std::to_string(v); continue;
+        }
+        if (!std::strcmp(key, "b_channel")) {
+            int v = val < 1 ? 1 : (val > 16 ? 16 : val);
+            g_init_b_channel = std::to_string(v); continue;
+        }
         if (!std::strcmp(key, "forward_unmapped")){ g_forward_unmapped = (val != 0); continue; }
         for (int i = 0; i < N_PARAMS; i++) {
             if (!std::strcmp(key, PARAMS[i].key)) {
@@ -319,7 +421,8 @@ static void usage(const char *me) {
         "  -v                    verbose (log every param change)\n"
         "  --client NAME         ALSA client name         (default: Mockba Acid)\n"
         "  --control-channel N   1-16, CC + note-in       (default: 1)\n"
-        "  --out-channel N       1-16, generated notes    (default: 1)\n"
+        "  --a-channel N         1-16, Seq A note output   (default: 1)\n"
+        "  --b-channel N         1-16, Seq B note output   (default: 1)\n"
         "  --bpm N               starting BPM before clock (default: 120)\n"
         "  --config PATH         CC-map / channel overrides\n"
         "  --no-forward          drop unmapped CC instead of passing to the synth\n",
@@ -337,7 +440,8 @@ int main(int argc, char **argv) {
         else if (a == "--no-forward")       g_forward_unmapped = false;
         else if (a == "--client"          && i + 1 < argc) client   = argv[++i];
         else if (a == "--control-channel" && i + 1 < argc) g_ctrl_ch = (std::atoi(argv[++i]) - 1) & 0x0F;
-        else if (a == "--out-channel"     && i + 1 < argc) g_out_ch  = (std::atoi(argv[++i]) - 1) & 0x0F;
+        else if (a == "--a-channel"       && i + 1 < argc) g_init_a_channel = argv[++i];
+        else if (a == "--b-channel"       && i + 1 < argc) g_init_b_channel = argv[++i];
         else if (a == "--bpm"             && i + 1 < argc) bpm0     = (float)std::atof(argv[++i]);
         else if (a == "--config"          && i + 1 < argc) cfg      = argv[++i];
         else { usage(argv[0]); return a == "-h" || a == "--help" ? 0 : 2; }
@@ -355,6 +459,10 @@ int main(int argc, char **argv) {
     }
     g_inst = g_api->create_instance(".", nullptr);
     if (!g_inst) { std::fprintf(stderr, "[acid] create_instance failed\n"); return 1; }
+    /* FORCE-ONLY: push the CLI/config initial channel selection now that the
+     * instance exists -- see g_init_a_channel/g_init_b_channel above. */
+    g_api->set_param(g_inst, "a_channel", g_init_a_channel.c_str());
+    g_api->set_param(g_inst, "b_channel", g_init_b_channel.c_str());
 
     /* --- MIDI ports --- */
     RtMidiIn *in = nullptr;
@@ -374,11 +482,17 @@ int main(int argc, char **argv) {
     std::signal(SIGTERM, on_signal);
 
     std::fprintf(stderr,
-        "[acid] up. ports '%s:In' / '%s:Out'  ctrl ch %d  out ch %d\n"
+        "[acid] up. ports '%s:In' / '%s:Out'  ctrl ch %d  A ch %s  B ch %s\n"
         "[acid] connect Force transport SYNC+CLOCK to '%s:In', route a MIDI track\n"
-        "[acid] to it on ch %d for CC control, and a synth track FROM '%s:Out'.\n",
-        client.c_str(), client.c_str(), g_ctrl_ch + 1, g_out_ch + 1,
+        "[acid] to it on ch %d for CC control, and synth track(s) FROM '%s:Out'\n"
+        "[acid] (Seq A and Seq B can share one channel or use two -- see a_channel/b_channel).\n",
+        client.c_str(), client.c_str(), g_ctrl_ch + 1, g_init_a_channel.c_str(), g_init_b_channel.c_str(),
         client.c_str(), g_ctrl_ch + 1, client.c_str());
+
+    /* v0.2: broadcast full initial state now that g_out exists, so a web
+     * panel or controller connected at boot sees true defaults immediately
+     * rather than waiting up to 2s for the first periodic broadcast. */
+    send_all_feedback();
 
     std::thread timer(timer_loop);
 
@@ -388,9 +502,15 @@ int main(int argc, char **argv) {
     timer.join();
     {
         std::lock_guard<std::mutex> lk(g_lock);
-        for (int note = 0; note < 128; note++) {
-            std::vector<unsigned char> off = { (unsigned char)(0x80 | g_out_ch), (unsigned char)note, 0 };
-            try { g_out->sendMessage(&off); } catch (...) {}
+        /* FORCE-ONLY: A and B can each be on any of 16 channels and it can
+         * change at runtime via CC, so the shim doesn't reliably know which
+         * channel(s) are "live" at exit -- send note-off across all 16
+         * rather than track/query it. One-time cost at shutdown only. */
+        for (int ch = 0; ch < 16; ch++) {
+            for (int note = 0; note < 128; note++) {
+                std::vector<unsigned char> off = { (unsigned char)(0x80 | ch), (unsigned char)note, 0 };
+                try { g_out->sendMessage(&off); } catch (...) {}
+            }
         }
         g_api->destroy_instance(g_inst);
     }

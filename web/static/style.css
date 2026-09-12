@@ -1,0 +1,291 @@
+/* Force Acid control panel — styled after the Behringer TD-3-MO (yellow). */
+
+:root {
+  --yellow:        #f5c400;
+  --yellow-dark:   #d9ac00;
+  --yellow-shadow: #9c7c00;
+  --panel:         #161616;
+  --panel-2:       #1f1f1f;
+  --panel-edge:    #0a0a0a;
+  --ink:           #f0ede4;
+  --ink-dim:       #9a9689;
+  --red:           #e8341c;
+  --red-dark:      #a3220f;
+  --green:         #35d07f;
+  --knob-face:     #2a2a2a;
+  --knob-rim:      #050505;
+  --page-bg:       #0d0d0d;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: "Arial Narrow", Arial, "Helvetica Neue", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.chassis {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 14px 14px 24px;
+  background: linear-gradient(180deg, var(--yellow) 0%, var(--yellow-dark) 100%);
+  border-radius: 14px;
+  box-shadow: 0 10px 0 var(--yellow-shadow), 0 18px 30px rgba(0,0,0,.55);
+  min-height: 100vh;
+}
+
+@media (min-width: 700px) {
+  .chassis { margin: 24px auto; min-height: auto; }
+}
+
+/* ---------------------------------------------------------------- topbar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 6px 16px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.brand-mark {
+  font-weight: 900;
+  font-style: italic;
+  font-size: 26px;
+  letter-spacing: 1px;
+  color: var(--panel-edge);
+  text-shadow: 0 1px 0 rgba(255,255,255,.25);
+}
+.brand-accent { color: #fff; -webkit-text-stroke: 1px var(--panel-edge); }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border-radius: 20px;
+  padding: 6px 10px;
+  box-shadow: inset 0 0 0 2px var(--panel-edge);
+}
+
+.engine-btn {
+  font: 700 12px/1 "Arial Narrow", Arial, sans-serif;
+  letter-spacing: 1.5px;
+  color: var(--ink);
+  background: linear-gradient(180deg, #333, #1a1a1a);
+  border: 1px solid #000;
+  border-radius: 14px;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.engine-btn:active { transform: translateY(1px); }
+.engine-btn.on { background: linear-gradient(180deg, var(--red), var(--red-dark)); color: #fff; }
+
+.led {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #3a0d06;
+  box-shadow: inset 0 0 2px #000;
+}
+.led-on  { background: var(--green); box-shadow: 0 0 8px var(--green), inset 0 0 2px #063; }
+.led-off { background: #3a0d06; }
+
+.status-text {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--ink-dim);
+  min-width: 52px;
+}
+
+/* ---------------------------------------------------------------- panels */
+
+.panels {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 700px) {
+  .panels { grid-template-columns: repeat(3, 1fr); }
+}
+
+.panel {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border-radius: 10px;
+  padding: 14px 10px 18px;
+  box-shadow: 0 3px 0 var(--panel-edge), inset 0 0 0 1px #000;
+}
+
+.panel-title {
+  text-align: center;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--yellow);
+  margin: 0 0 12px;
+  text-shadow: 0 1px 0 #000;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px 6px;
+}
+
+/* ------------------------------------------------------------------ knob */
+
+.control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.knob {
+  --angle: -135deg;
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%, #4a4a4a, var(--knob-face) 60%, #0f0f0f 100%);
+  box-shadow: 0 3px 0 var(--knob-rim), 0 5px 6px rgba(0,0,0,.5), inset 0 0 0 2px #000;
+  touch-action: none;
+  cursor: ns-resize;
+}
+.knob::before {
+  /* indicator line */
+  content: "";
+  position: absolute;
+  left: 50%; top: 6px;
+  width: 3px; height: 16px;
+  background: #fff;
+  border-radius: 2px;
+  transform-origin: 50% 20px;
+  transform: translateX(-50%) rotate(var(--angle));
+  box-shadow: 0 0 3px rgba(255,255,255,.5);
+}
+.knob::after {
+  /* rim ticks arc, purely decorative */
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px dashed rgba(0,0,0,.35);
+  opacity: .5;
+}
+
+.control-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: var(--ink-dim);
+}
+.control-value {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--yellow);
+  min-height: 12px;
+}
+
+/* --------------------------------------------------------------- button */
+
+.btn-pad {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--red), var(--red-dark));
+  box-shadow: 0 3px 0 #5c1409, 0 5px 6px rgba(0,0,0,.5), inset 0 0 0 1px #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: .5px;
+  cursor: pointer;
+  touch-action: none;
+}
+.btn-pad.active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #5c1409, inset 0 2px 4px rgba(0,0,0,.6);
+}
+
+/* -------------------------------------------------------------- footer */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 8px 4px;
+}
+
+.transpose-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border-radius: 20px;
+  padding: 8px 14px;
+  box-shadow: inset 0 0 0 2px var(--panel-edge);
+  flex: 1 1 260px;
+}
+.transpose-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--ink-dim);
+}
+.transpose-slider {
+  flex: 1;
+  accent-color: var(--red);
+}
+.transpose-val {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--yellow);
+  width: 24px;
+  text-align: right;
+}
+
+.footer-brand {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--panel-edge);
+  opacity: .7;
+}
+
+/* enum dropdown, used instead of a knob for scale/root/reset/dir/auto-gen --
+ * a pill-row here overflowed badly once option counts grew past a handful
+ * (scale/root have 12), so this is a plain native <select> instead. */
+.control-enum {
+  grid-column: span 2;
+  justify-content: flex-start;
+}
+.enum-select {
+  width: 100%;
+  max-width: 100%;
+  background: #000;
+  color: var(--yellow);
+  border: 2px solid var(--knob-rim);
+  border-radius: 6px;
+  padding: 8px 4px;
+  font: 700 11px/1 "Arial Narrow", Arial, sans-serif;
+  letter-spacing: .5px;
+  text-align: center;
+  text-align-last: center;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.enum-select:focus { outline: 2px solid var(--yellow); }

@@ -1,6 +1,13 @@
 # force-acid — porting `schwung-acid` to the Akai Force (MockbaMod)
 
-Status: **scaffold + first shim written, not yet built or hardware-tested.**
+Status: **v0.1.0 — built and hardware-verified.** Native armhf binary built
+(Debian stretch/QEMU toolchain — see "Toolchain" below for why buster doesn't
+work) and confirmed working end-to-end on a real Force: virtual ports register
+correctly (`aconnect -l` shows client `Mockba Acid` with `In`/`Out` ports),
+real Force MIDI clock (0xF8/0xFA/0xFC) drives stepping, and generated
+note-on/off + slide CC(65) reach `Mockba Acid:Out` with correct
+accent/normal velocities. Remaining v0.2 items are listed in "TODO before
+calling it v1" below.
 
 ## Goal
 
@@ -106,23 +113,37 @@ Force userland: `ELF 32-bit LSB, ARM EABI5, /lib/ld-linux-armhf.so.3`,
 `GLIBCXX_3.4.21` (≈ GCC 5.1).
 
 `scripts/Dockerfile` + `scripts/build.sh` build **natively for armhf inside a
-QEMU-emulated `arm32v7/debian:buster` container** (`--platform linux/arm/v7`) —
-`apt install g++ libasound2-dev`, plain `gcc`/`g++`, dynamic link. Same shape as
-Euclidier's `compile_pi.sh`, just on emulated hardware instead of a real Pi.
-Chosen over a cross toolchain because the cross package ships no armhf ALSA and
-RtMidi's ALSA backend needs `<alsa/asoundlib.h>` + `-lasound`; native armhf
-gets both from one `apt` line, and glibc/GLIBCXX are automatically the device's
-ABI family.
+QEMU-emulated container** (`--platform linux/arm/v7`) — `apt install g++
+libasound2-dev`, plain `gcc`/`g++`, dynamic link. Same shape as Euclidier's
+`compile_pi.sh`, just on emulated hardware instead of a real Pi. Chosen over a
+cross toolchain because the cross package ships no armhf ALSA and RtMidi's
+ALSA backend needs `<alsa/asoundlib.h>` + `-lasound`; native armhf gets both
+from one `apt` line, and glibc/GLIBCXX are automatically the device's ABI
+family.
 
-Buster armhf = glibc 2.28 / GCC 8. `build.sh` prints the highest `GLIBC_*`
-symbol version the binary actually needs — expect ≤ 2.28, ideally ≤ 2.19.
+**Base image is `arm32v7/debian:stretch`, not `buster`.** Buster was the
+original choice but its archived apt repo (`archive.debian.org`, since buster
+is EOL) fails to resolve `g++`'s dependency on `g++-8` — "held broken
+packages" — once the security/updates suites are stripped out (they have to
+be: their Release files are expired and archive.debian.org doesn't mirror the
+point-release fixups buster's g++-8 needs). Stretch's package set doesn't hit
+this; the build works cleanly. Verified against the real device with
+`strings /usr/lib/libstdc++.so.6.0.32` over SSH: the Force ships
+`GLIBCXX_3.4.32` — comfortably newer than anything this or the other RtMidi
+addons need — so stretch's older/lower symbol requirements are not a
+compatibility risk, only a "furthest safely-old baseline" choice.
+
+`build.sh` prints the highest `GLIBC_*` symbol version the binary actually
+needs. This build: `GLIBC_2.4`, `GLIBCXX_3.4.22` — both well under the
+device's actual ceiling (confirmed live: `libc.so.6` and
+`libstdc++.so.6.0.32` on the Force satisfy both with room to spare).
 
 Emulation: Docker Desktop registers binfmt automatically. On a bare Linux
 dockerd, run once:
 `docker run --rm --privileged multiarch/qemu-user-static --reset -p yes`.
 
-Fallbacks if the binary still won't run on the Force (`GLIBC_2.xx not found`):
-- older base — `arm32v7/debian:stretch` (glibc 2.24) — one line in the Dockerfile
+Fallbacks if a future toolchain bump ever produces a binary that won't run on
+the Force (`GLIBC_2.xx not found` / `GLIBCXX_3.4.xx not found`):
 - build on a real Raspberry Pi OS 32-bit (`compile_pi.sh` style), or
 - `apt`-install `g++`/`libasound2-dev` on the Force itself over SSH (the `/usr`
   overlay is writable) and compile there.
@@ -146,11 +167,57 @@ Force IP: wifi screen, Shift + the info button. SSH user/pass `root` / `force`.
 
 ## TODO before calling it v1
 
-- [ ] `build.sh` actually produces a runnable armhf binary (Docker not available
-      in this environment yet — untested)
-- [ ] hardware smoke test: ports appear, clock starts/stops it, a CC moves a param
-- [ ] capture a real `.xtk` template, commit it, reference from `README.txt`
+- [x] `build.sh` actually produces a runnable armhf binary — fixed (stretch
+      base, see "Toolchain"), built successfully, `dist/force-acid-addon.tar.gz`
+- [x] hardware smoke test: ports appear (`aconnect -l` shows `Mockba Acid`
+      client with `In`/`Out`), clock starts it (real Force-clock-driven test:
+      19 note-on/19 note-off + slide CC65 observed on `Mockba Acid:Out` over
+      ~4s of injected 0xF8/0xFA/0xFC), a CC moves a param (verified via `-v`
+      log during manual testing; the `a_generate` trigger (CC20) was also
+      sent mid-run without disrupting the note stream)
+- [x] capture a real `.xtk` template, commit it, reference from `README.txt`
+      — turned out not to need real-hardware capture at all: `.xtk` is a
+      5-line header + gzip-compressed JSON, reverse-engineered from a real
+      Harpie4T template pulled over SSH. `scripts/build_xtk.py` generates
+      `addon/Force Acid Control.xtk` (16 Q-Link knobs, Seq A+B's core
+      controls) from `scripts/xtk-seed.json`. Structurally valid
+      (round-trips through gzip/JSON, matches the real file's shape) but
+      **not yet visually confirmed on a real screen** — see
+      `docs/capture-xtk.md` for exactly what's unconfirmed (`momentary`/
+      `paramType` semantics) and what to check.
+- [x] decide A/B split-channel mode (flag) vs. keep merged-only — went with
+      always-available independent `a_channel`/`b_channel` (not a flag),
+      since Force's host has no reason to force one-channel-only the way
+      Move's chain host does. Blend is unchanged and still applies on top.
+      Hardware-verified: A/B note streams land on distinct MIDI channels,
+      each carrying its own slide CC65.
+- [x] port the current schwung-acid upstream (v1.1.1) forward: Jitter,
+      per-sequencer Offset/Direction (Fwd/Rev/Pendulum), Auto Gen, and the
+      expanded 12-scale set — all hardware-verified (CCs 28-30/48-50/78-79,
+      see `docs/CC-MAP.md`). `acid_core.c` is upstream verbatim plus the
+      channel patch above, both marked `FORCE-ONLY`.
 - [ ] control-surface feedback (CC out on ch 16)
-- [ ] decide A/B split-channel mode (flag) vs. keep merged-only
 - [ ] licensing note — inherits `schwung-acid`'s (tb3po = GPL-3.0); keep the
       `VEL_PYRAMID` attribution question from the upstream README in view
+- [ ] not yet enabled for autolaunch on the test device (`manage.sh ENABLE`
+      not run) — currently deploy-and-manually-run only, by design, pending a
+      go-ahead to make it persistent
+
+## Web control panel (`web/`)
+
+v0.1 of a browser control surface exists and is hardware-verified: knobs +
+buttons for the full CC map, TD-3-MO styling, engine start/stop from the
+browser (the server runs on-device so it can `Popen`/`killall` the binary
+directly). See `web/README.md` for details and known limitations (no
+parameter feedback yet — same v0.2 gap as the CC-in-only control surface
+generally). Not yet wired into `AddOns/` autolaunch.
+
+**Gotcha worth recording**: the bundled `python-rtmidi` (via the `Python`
+AddOn's `mido`) needs `LD_LIBRARY_PATH` pointed at that addon's `libjack`
+folder just to *import* (it was built with JACK support), and separately,
+opening a port via plain `mido.open_output(name)`/`open_input(name)` **hangs
+forever** on this device unless you pass `api='LINUX_ALSA'` explicitly —
+without it, rtmidi apparently tries JACK first and blocks waiting for a
+server that isn't running. Cost real debugging time once; `web/server.py`
+and any future Python-side MIDI tooling on this device should always pass
+`api='LINUX_ALSA'`.

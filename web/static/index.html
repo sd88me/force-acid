@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>FORCE ACID</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="chassis">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">FORCE</span><span class="brand-mark brand-accent">ACID</span>
+      </div>
+      <div class="status">
+        <button id="engineBtn" class="engine-btn" type="button">ENGINE</button>
+        <span id="led" class="led led-off" title="engine status"></span>
+        <span id="statusText" class="status-text">OFFLINE</span>
+      </div>
+    </header>
+
+    <main id="groups" class="panels"><!-- filled by app.js --></main>
+
+    <footer class="footer">
+      <div class="transpose-block">
+        <span class="transpose-label">TRANSPOSE</span>
+        <input id="transpose" class="transpose-slider" type="range" min="-24" max="24" value="0" step="1">
+        <span id="transposeVal" class="transpose-val">0</span>
+      </div>
+      <div class="footer-brand">MOCKBAMOD &middot; FORCE ACID &middot; v0.1</div>
+    </footer>
+  </div>
+
+<script src="/app.js"></script>
+</body>
+</html>

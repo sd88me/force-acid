@@ -20,33 +20,59 @@ SETUP ON THE FORCE
   1. Preferences > MIDI:
        - "Mockba Acid In"  : enable Sync + Track (so clock + your CC track reach it)
        - "Mockba Acid Out" : enable Track
-  2. Make a MIDI track "ACID CTRL", output = Mockba Acid In, channel 1.
-     Its knobs / pads send the CC map below. Play notes on it to transpose.
+  2. Make a MIDI track named exactly "ACID CTRL" (the included template
+     binds by track name), output = Mockba Acid In, channel 1.
+     Load "Force Acid Control.xtk" (included alongside this file) onto that
+     track to get 16 pre-named Q-Link knobs for Seq A + Seq B's core
+     controls (Generate/Mutate/Density/Accent/Slide/Octaves/Length/Gate x2)
+     -- or skip it and MIDI-learn any knob to any CC in the map below by
+     hand. NOTE: the template is reverse-engineered and not yet confirmed to
+     look right on a real screen -- see docs/capture-xtk.md. Global and the
+     newer Advanced controls (Channel/Offset/Dir/Jitter/AutoGen) aren't in
+     the template yet; reach them via MIDI-learn or the web control panel
+     (web/, see web/README.md).
+     Play notes on the control track to transpose (moves both sequencers
+     together, regardless of their output channels).
   3. Make an instrument track (plugin, or MIDI to external gear), input =
-     Mockba Acid Out, input channel 1, monitor = In/Auto.
-  4. Press Play. Seq A starts; dial Blend up from -63 to bring Seq B in.
+     Mockba Acid Out. Seq A and Seq B each have their OWN output channel
+     (a_channel/b_channel, both default to 1) -- either point one instrument
+     track at channel 1 to hear both blended together (classic behaviour),
+     or give A and B different channels and use two instrument tracks, one
+     per channel, like the original tb3po's two separate outputs.
+  4. Press Play. Seq A starts; dial Blend up from -63 to bring Seq B in
+     (Blend still works even when A and B are on separate channels -- it's
+     a velocity balance, not a routing switch).
 
-CC MAP  (control channel 1 by default; edit force-acid.conf to change)
+CC MAP  (control channel 1 by default; edit force-acid.conf to change; full
+table with enum landing points in docs/CC-MAP.md)
   SEQUENCE A            SEQUENCE B            GLOBAL
-   20  Generate A        40  Generate B        50  Scale     (6 values)
-   21  Mutate A          41  Mutate B          51  Root      (12 keys)
-   22  Density A         42  Density B         52  Tune B    (-24..+24)
-   23  Accent A          43  Accent B          53  Blend     (-63..+64)
-   24  Slide A           44  Slide B           54  Algo A    (1..16)
-   25  Octaves A (1-3)   45  Octaves B (1-3)   55  Algo B    (1..16)
-   26  Length A (2-32)   46  Length B (2-32)   56  Reset Both(1/2/4/8/Off)
-   27  Gate A            47  Gate B            57  Swing     (50..75)
+   20  Generate A        40  Generate B        70  Scale      (12 values)
+   21  Mutate A          41  Mutate B          71  Root       (12 keys)
+   22  Density A         42  Density B         72  Tune B     (-24..+24)
+   23  Accent A          43  Accent B          73  Blend      (-63..+64)
+   24  Slide A           44  Slide B           74  Algo A     (1..16)
+   25  Octaves A (1-3)   45  Octaves B (1-3)   75  Algo B     (1..16)
+   26  Length A (2-32)   46  Length B (2-32)   76  Reset Both (1/2/4/8/Off)
+   27  Gate A            47  Gate B            77  Swing      (50..75)
+   28  Channel A (1-16)  48  Channel B (1-16)  78  Jitter     (0..100%)
+   29  Offset A (0-31)   49  Offset B (0-31)   79  Auto Gen   (Off/1/2/4/8/16/32 bars)
+   30  Dir A (Fwd/Rev/Pendulum)  50  Dir B (Fwd/Rev/Pendulum)
 
   Generate / Mutate trigger on CC value >= 64 (treat as a momentary button).
   All other CCs are the full 0-127 range scaled to the parameter.
+  Channel A/B, Offset A/B and Dir A/B have no Move equivalent -- see DESIGN.md.
 
 OPTIONS (in run_force-acid.sh or on the command line)
    -v                     log every parameter change to stderr
    --control-channel N    1-16
-   --out-channel N        1-16
+   --a-channel N          1-16, Seq A's output channel (default 1)
+   --b-channel N          1-16, Seq B's output channel (default 1)
    --config PATH          CC-map / channel overrides (see force-acid.conf.example)
 
 STATUS
-  v0.1.0 - first port. Generator code is byte-for-byte the Move module's.
-  Not yet verified on hardware. No parameter feedback to the control
-  surface yet, no preset save. See DESIGN.md in the source repo.
+  v0.2 in progress - jitter, per-step Offset/Direction, Auto Gen, expanded
+  scale set (12), and independent Seq A/Seq B output channels have all been
+  ported from the current schwung-acid and verified on real Force hardware
+  (ports register, transport clock drives stepping, notes/slide reach the
+  right channel per sequencer, CC changes take effect live). No parameter
+  feedback to the control surface yet, no preset save. See DESIGN.md.
