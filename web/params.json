@@ -21,7 +21,9 @@
 
         { "key": "a_dir",      "label": "DIR",      "cc": 30, "kind": "enum", "options": ["FWD", "REV", "PENDUL"] },
         { "key": "a_channel",  "label": "CHANNEL",  "cc": 28, "kind": "int",   "lo": 1,    "hi": 16 },
-        { "key": "blend",      "label": "BLEND A>B", "cc": 73, "kind": "int",  "lo": -63,  "hi": 64 }
+        { "key": "blend",      "label": "BLEND A>B", "cc": 73, "kind": "int",  "lo": -63,  "hi": 64 },
+
+        { "key": "a_export",   "label": "EXPORT SEQUENCE AS MIDI CLIP", "lane": "a", "kind": "export" }
       ]
     },
     {
@@ -44,7 +46,9 @@
 
         { "key": "b_dir",      "label": "DIR",      "cc": 50, "kind": "enum", "options": ["FWD", "REV", "PENDUL"] },
         { "key": "b_channel",  "label": "CHANNEL",  "cc": 48, "kind": "int",   "lo": 1,    "hi": 16 },
-        { "key": "b_tune",     "label": "TUNE OFFSET", "cc": 72, "kind": "int", "lo": -24, "hi": 24 }
+        { "key": "b_tune",     "label": "TUNE OFFSET", "cc": 72, "kind": "int", "lo": -24, "hi": 24 },
+
+        { "key": "b_export",   "label": "EXPORT SEQUENCE AS MIDI CLIP", "lane": "b", "kind": "export" }
       ]
     },
     {

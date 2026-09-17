@@ -7,10 +7,10 @@ output channel" below) — this replaces the old single `output_channel`/
 `--out-channel` concept entirely.
 
 CC numbers are chosen to sit clear of the ranges MockbaMod's MidiLoop docs warn
-about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A (20-31), Seq B
-(40-51), and Global (70-79, split into the original 8 knobs plus an Advanced
+about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A (20-32), Seq B
+(40-52), and Global (70-79, split into the original 8 knobs plus an Advanced
 block moved out to make room for each sequencer's own Advanced controls,
-including each seq's own Auto Regen at 31/51).
+including each seq's own Auto Regen at 31/51 and Export dump trigger at 32/52).
 
 | Page | CC | Param | Wire range → value | Notes |
 |---|---|---|---|---|
@@ -26,6 +26,7 @@ including each seq's own Auto Regen at 31/51).
 | | 29 | `a_offset` | 0–127 → 0–31 | read-side rotation, clamped to `< a_length` |
 | | 30 | `a_dir` | 0–127 → 0–2 | Fwd / Rev / Pendulum |
 | | 31 | `a_auto_gen` | 0–127 → 0–6 | **FORCE-ONLY**; Off / 1 / 2 / 4 / 8 / 16 / 32 bars — periodic auto re-Generate, Seq A only |
+| | 32 | `a_dump` | ≥64 fires | **FORCE-ONLY**; momentary — triggers "Export as MIDI Clip" for Seq A, see below |
 | **Seq B** | 40 | `b_generate` | ≥64 fires | |
 | | 41 | `b_mutate` | ≥64 fires | |
 | | 42 | `b_density` | 0–127 → 0.00–1.00 | |
@@ -38,6 +39,7 @@ including each seq's own Auto Regen at 31/51).
 | | 49 | `b_offset` | 0–127 → 0–31 | read-side rotation, clamped to `< b_length` |
 | | 50 | `b_dir` | 0–127 → 0–2 | Fwd / Rev / Pendulum |
 | | 51 | `b_auto_gen` | 0–127 → 0–6 | **FORCE-ONLY**; Off / 1 / 2 / 4 / 8 / 16 / 32 bars — periodic auto re-Generate, Seq B only |
+| | 52 | `b_dump` | ≥64 fires | **FORCE-ONLY**; momentary — triggers "Export as MIDI Clip" for Seq B, see below |
 | **Global** | 70 | `scale` | 0–127 → 0–11 | 12 options, see below |
 | | 71 | `root` | 0–127 → 0–11 | C … B |
 | | 72 | `b_tune` | 0–127 → −24…+24 | Seq B interval from Seq A, semitones |
@@ -108,6 +110,26 @@ sequencers' output to fit that, without changing anything else:
 - Everything else (note pitch, gate/note-on-off timing, per-sequencer
   channel) is unaffected — set `a_channel`/`b_channel` to route each
   sequencer to its own CV track as usual.
+
+## Export as MIDI Clip (FORCE-ONLY)
+
+`a_dump`/`b_dump` (CC 32/52, momentary — ≥64 fires) trigger the web panel's
+"Export sequence as MIDI clip" button for that sequencer, writing a Standard
+MIDI File of the pattern to `/media/az01-internal-sd/Force Documents/Sequences`
+and a backup copy in this addon's own `exports/` folder.
+
+This is deliberately **not** a live capture: `acid_core.c`'s
+`process_dump_for_seq()` replays the sequencer's current step buffer on its
+own fixed, tempo-independent cadence (60ms/step) over a dedicated channel
+(16, the same one CC feedback already uses, never live note output) — so
+triggering an export never disturbs whatever this sequencer, or the other
+one, is currently playing live, and the web panel's capture can't be
+corrupted by concurrent live playback on the sequencer's own `a_channel`/
+`b_channel`. `web/server.py` listens for that stream, reconstructs a clean
+16th-note-grid clip (note length from the sequencer's current Gate, not the
+dump's own fixed cadence; slide preserved as a CC65 bracket; accent
+preserved as the existing 118 vs 72 velocity split, independent of CV Mode),
+and writes it out.
 
 ## Note input
 

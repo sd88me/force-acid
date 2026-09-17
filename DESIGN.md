@@ -222,6 +222,23 @@ Force IP: wifi screen, Shift + the info button. SSH user/pass `root` / `force`.
       audio destination, which doesn't apply when each is routed to its own
       separate CV hardware); Slide moves from CC65 (Portamento) to CC1 (Mod
       Wheel) for a Mod Wheel CV row. See docs/CC-MAP.md's "CV Mode" section.
+- [x] Export as MIDI Clip (`a_dump`/`b_dump`, CC 32/52) -- `FORCE-ONLY`, a web
+      panel button per sequencer that writes the current pattern to a
+      Standard MIDI File in `/media/az01-internal-sd/Force Documents/
+      Sequences` and this addon's own `exports/` folder. Deliberately not a
+      live capture: `acid_core.c`'s `process_dump_for_seq()` replays the
+      seq's step buffer on its own fixed, tempo-independent 60ms/step
+      cadence, using entirely separate `dump_*` state from live playback's
+      position/last_note_on/portamento_on, and on a dedicated channel
+      (`DUMP_CHANNEL` = 16, reusing host_shim.cpp's existing feedback
+      channel, which never carries live notes) rather than the seq's own
+      `a_channel`/`b_channel` -- so exporting can never disturb, or be
+      corrupted by, live playback of either sequencer. `web/server.py`
+      captures that stream and reconstructs a clean 16th-note-grid clip
+      (note length from the current Gate, not the dump's own cadence).
+      Hardware-verified, including the case that mattered most: triggering
+      an export while both sequencers were actively live-playing produced a
+      correct, uncontaminated clip with zero gap in live note output.
 - [ ] control-surface feedback (CC out on ch 16)
 - [ ] licensing note — inherits `schwung-acid`'s (tb3po = GPL-3.0); keep the
       `VEL_PYRAMID` attribution question from the upstream README in view

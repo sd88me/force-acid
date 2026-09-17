@@ -59,18 +59,28 @@ table with enum landing points in docs/CC-MAP.md)
    30  Dir A (Fwd/Rev/Pendulum)  50  Dir B (Fwd/Rev/Pendulum)
    31  Auto Regen A (Off/1/2/4/8/16/32 bars)
                         51  Auto Regen B (Off/1/2/4/8/16/32 bars)
+   32  Dump A (momentary, Export as MIDI Clip)
+                        52  Dump B (momentary, Export as MIDI Clip)
 
   Generate / Mutate trigger on CC value >= 64 (treat as a momentary button).
   All other CCs are the full 0-127 range scaled to the parameter.
-  Channel A/B, Offset A/B, Dir A/B, Auto Regen A/B and CV Mode have no Move
-  equivalent -- see DESIGN.md. Auto Regen A/B replaces the old single shared
-  Auto Gen with an independent per-sequencer bar counter.
+  Channel A/B, Offset A/B, Dir A/B, Auto Regen A/B, CV Mode and Dump A/B
+  have no Move equivalent -- see DESIGN.md. Auto Regen A/B replaces the old
+  single shared Auto Gen with an independent per-sequencer bar counter.
 
   CV Mode retargets both sequencers for a Force CV track driving external
   CV/Gate hardware (e.g. a Behringer TD-3-MO) instead of a MIDI synth:
   accent becomes a velocity-only signal (1 normal / 127 accented, NOT scaled
   by Blend) for a Velocity CV row, and Slide moves from CC65 (Portamento) to
   CC1 (Mod Wheel) for a Mod Wheel CV row. See docs/CC-MAP.md's "CV Mode"
+  section.
+
+  Dump A/B trigger the web panel's "Export sequence as MIDI clip" button --
+  a Standard MIDI File is written to /media/az01-internal-sd/Force
+  Documents/Sequences and to this addon's own exports/ folder. The dump
+  replays the current pattern on its own fixed cadence over a dedicated
+  channel, independent of live playback, so exporting never interrupts
+  whatever's currently playing. See docs/CC-MAP.md's "Export as MIDI Clip"
   section.
 
 OPTIONS (in run_force-acid.sh or on the command line)

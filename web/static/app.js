@@ -191,6 +191,51 @@
     return wrap;
   }
 
+  function makeExport(spec) {
+    // Triggers the engine's Export dump (acid_core.c's process_dump_for_seq())
+    // via POST /export rather than /cc -- this isn't a CC-mapped parameter,
+    // and the request can take a couple of seconds (one dump step per 60ms
+    // of pattern length) and returns a real success/failure result, unlike
+    // every other control here which is fire-and-forget.
+    const wrap = document.createElement("div");
+    wrap.className = "control control-export";
+
+    const pad = document.createElement("div");
+    pad.className = "btn-pad btn-export";
+    pad.textContent = spec.label;
+
+    const status = document.createElement("div");
+    status.className = "control-value";
+    status.innerHTML = "&nbsp;";
+
+    let busy = false;
+    pad.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      if (busy) return;
+      busy = true;
+      pad.classList.add("active");
+      status.textContent = "EXPORTING…";
+      fetch("/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lane: spec.lane }),
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          status.textContent = res.ok ? "SAVED" : (res.error || "FAILED");
+        })
+        .catch(() => { status.textContent = "FAILED"; })
+        .finally(() => {
+          busy = false;
+          pad.classList.remove("active");
+          setTimeout(() => { status.innerHTML = "&nbsp;"; }, 4000);
+        });
+    });
+
+    wrap.append(pad, status);
+    return wrap;
+  }
+
   function makeEnum(spec) {
     const wrap = document.createElement("div");
     wrap.className = "control control-enum";
@@ -241,6 +286,7 @@
     if (spec.kind === "spacer") return makeSpacer();
     if (spec.kind === "momentary") return makeMomentary(spec);
     if (spec.kind === "toggle") return makeToggle(spec);
+    if (spec.kind === "export") return makeExport(spec);
     if (spec.kind === "enum") return makeEnum(spec);
     return makeKnob(spec);
   }

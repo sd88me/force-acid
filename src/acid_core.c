@@ -114,6 +114,23 @@ static const int BAR_STEPS[4] = {16, 32, 64, 128};
  * enum puts "Off" first and reaches further (up to 32 bars) than Reset Both. */
 static const int AUTO_GEN_BAR_STEPS[6] = {16, 32, 64, 128, 256, 512};
 
+/* FORCE-ONLY: fixed per-step duration for the Export dump player (see
+ * acid_seq_t's dump_* fields), in milliseconds -- deliberately independent
+ * of tempo/rate so exporting never needs the live transport running. 60ms
+ * is short enough that a 32-step dump finishes in well under 2 seconds,
+ * long enough that a MIDI listener can cleanly tell consecutive
+ * note-on/off pairs apart. */
+#define DUMP_STEP_MS 60
+
+/* FORCE-ONLY: the dump player emits on a fixed channel rather than the
+ * seq's own out_ch, so an export capture can't be corrupted by live
+ * playback happening concurrently on the same channel (the whole point of
+ * a separate dump state machine). Reuses host_shim.cpp's FEEDBACK_CHANNEL
+ * (also 15, 0-based -- MIDI channel 16), which is already established as
+ * a side-channel that never carries live note output, only CC feedback --
+ * safe to also carry the dump's note-on/off/CC65 stream. */
+#define DUMP_CHANNEL 15
+
 typedef struct {
     /* PRNG -- xorshift32. `rng` is the live, ever-advancing generator state
      * (mutate consumes from wherever it currently sits); `seed` is the last
@@ -162,6 +179,19 @@ typedef struct {
      * independently instead of sharing one bar-boundary. */
     int auto_gen_idx;
     long auto_gen_step_count;
+
+    /* FORCE-ONLY: one-shot "Export as MIDI Clip" dump player -- entirely
+     * separate from the live position/last_note_on/portamento_on state
+     * above, so triggering a dump never disturbs whatever this sequencer
+     * (or the other one) is currently playing live. Ticks on its own fixed,
+     * tempo-independent cadence (DUMP_STEP_SAMPLES) driven straight off
+     * acid_tick()'s own sample-rate clock, so it runs even while
+     * t->running is 0 -- see process_dump_for_seq(). */
+    int dump_active;            /* 1 while a dump is in progress */
+    int dump_pos;               /* which step is about to fire, 0..length-1 */
+    long dump_sample_accum;     /* accumulator toward the next dump step */
+    int dump_last_note;         /* -1 = none; last dump note-on, for note-off */
+    int dump_portamento_on;     /* separate from the live portamento_on */
 } acid_seq_t;
 
 typedef struct {
@@ -649,6 +679,111 @@ static int emit_step_for_seq(acid_inst_t *t, int seq_idx, int prev_pos, int vel_
     return count;
 }
 
+/* FORCE-ONLY: advances one sequencer's "Export as MIDI Clip" dump player by
+ * one call's worth of elapsed samples, firing whichever dump step is due on
+ * DUMP_STEP_MS's own fixed cadence. Mirrors emit_step_for_seq()'s note/slide
+ * logic but reads/writes the seq's dump_* fields instead of the live
+ * position/last_note_on/portamento_on -- so a dump in progress can never
+ * disturb (or be disturbed by) live playback of this sequencer or the
+ * other one. Deliberately always uses the plain MIDI convention (72/118
+ * velocity, CC65 slide) regardless of t->cv_mode, and ignores Blend
+ * entirely (this sequencer's own pattern at full strength) -- an exported
+ * clip is meant to be a normal, reusable MIDI clip, not tied to whatever
+ * live routing/mix mode happened to be active when it was captured.
+ *
+ * Runs `s->length` steps, then one extra terminal tick that releases
+ * whatever note/portamento is still held and sends a distinctive
+ * completion marker (CC3=127 on this seq's own channel) before clearing
+ * dump_active -- so a listener knows the dump is done without having to
+ * guess from elapsed time. */
+static int process_dump_for_seq(acid_inst_t *t, int seq_idx, int frames, int sample_rate,
+                                 uint8_t out_msgs[][3], int out_lens[], int max_out) {
+    acid_seq_t *s = &t->seq[seq_idx];
+    if (!s->dump_active) return 0;
+
+    s->dump_sample_accum += frames;
+    long step_samples = (long)((double)sample_rate * DUMP_STEP_MS / 1000.0);
+    if (s->dump_sample_accum < step_samples) return 0;
+    s->dump_sample_accum -= step_samples;
+
+    int count = 0;
+
+    if (s->dump_pos >= s->length) {
+        if (s->dump_portamento_on && count < max_out) {
+            out_msgs[count][0] = 0xB0 | DUMP_CHANNEL; out_msgs[count][1] = 65; out_msgs[count][2] = 0;
+            out_lens[count] = 3; count++;
+            s->dump_portamento_on = 0;
+        }
+        if (s->dump_last_note >= 0 && count < max_out) {
+            out_msgs[count][0] = 0x80 | DUMP_CHANNEL; out_msgs[count][1] = (uint8_t)s->dump_last_note; out_msgs[count][2] = 0;
+            out_lens[count] = 3; count++;
+            s->dump_last_note = -1;
+        }
+        if (count < max_out) {
+            out_msgs[count][0] = 0xB0 | DUMP_CHANNEL; out_msgs[count][1] = 3; out_msgs[count][2] = 127;
+            out_lens[count] = 3; count++;
+        }
+        s->dump_active = 0;
+        return count;
+    }
+
+    int pidx = play_idx(s, s->dump_pos);
+    uint8_t kind = s->steps[pidx];
+    int prev_pos = s->dump_pos - 1;   /* -1 on the first step -- no prior step to slide from */
+    int was_slide = (prev_pos >= 0 && s->steps[play_idx(s, prev_pos)] == STEP_SLIDE);
+
+    if (kind == STEP_REST) {
+        if (s->dump_portamento_on && count < max_out) {
+            out_msgs[count][0] = 0xB0 | DUMP_CHANNEL; out_msgs[count][1] = 65; out_msgs[count][2] = 0;
+            out_lens[count] = 3; count++;
+            s->dump_portamento_on = 0;
+        }
+        if (s->dump_last_note >= 0 && count < max_out) {
+            out_msgs[count][0] = 0x80 | DUMP_CHANNEL; out_msgs[count][1] = (uint8_t)s->dump_last_note; out_msgs[count][2] = 0;
+            out_lens[count] = 3; count++;
+            s->dump_last_note = -1;
+        }
+    } else {
+        int note = note_for_step(s, t->scale, t->root, t->live_transpose, pidx);
+        int is_accent = (kind == STEP_ACCENT);
+        int vel = is_accent ? 118 : 72;
+
+        if (was_slide) {
+            if (!s->dump_portamento_on && count < max_out) {
+                out_msgs[count][0] = 0xB0 | DUMP_CHANNEL; out_msgs[count][1] = 65; out_msgs[count][2] = 127;
+                out_lens[count] = 3; count++;
+                s->dump_portamento_on = 1;
+            }
+            if (count < max_out) {
+                out_msgs[count][0] = 0x90 | DUMP_CHANNEL; out_msgs[count][1] = (uint8_t)note; out_msgs[count][2] = (uint8_t)vel;
+                out_lens[count] = 3; count++;
+            }
+            if (s->dump_last_note >= 0 && s->dump_last_note != note && count < max_out) {
+                out_msgs[count][0] = 0x80 | DUMP_CHANNEL; out_msgs[count][1] = (uint8_t)s->dump_last_note; out_msgs[count][2] = 0;
+                out_lens[count] = 3; count++;
+            }
+        } else {
+            if (s->dump_portamento_on && count < max_out) {
+                out_msgs[count][0] = 0xB0 | DUMP_CHANNEL; out_msgs[count][1] = 65; out_msgs[count][2] = 0;
+                out_lens[count] = 3; count++;
+                s->dump_portamento_on = 0;
+            }
+            if (s->dump_last_note >= 0 && count < max_out) {
+                out_msgs[count][0] = 0x80 | DUMP_CHANNEL; out_msgs[count][1] = (uint8_t)s->dump_last_note; out_msgs[count][2] = 0;
+                out_lens[count] = 3; count++;
+            }
+            if (count < max_out) {
+                out_msgs[count][0] = 0x90 | DUMP_CHANNEL; out_msgs[count][1] = (uint8_t)note; out_msgs[count][2] = (uint8_t)vel;
+                out_lens[count] = 3; count++;
+            }
+        }
+        s->dump_last_note = note;
+    }
+
+    s->dump_pos++;
+    return count;
+}
+
 /* Advances both sequencers by one 16th-note tick, applies the Reset Both
  * bar-boundary snap when armed, and emits through the Blend crossfade.
  * Each sequencer wraps independently at its own Length every tick -- that
@@ -753,6 +888,7 @@ static void *acid_create_instance(const char *module_dir, const char *config_jso
         s->algo = 1;
         s->tune = 0;
         s->last_note_on = -1;
+        s->dump_last_note = -1;   /* FORCE-ONLY: -1 = none, same sentinel as last_note_on */
         s->pendulum_fwd = 1; /* offset/dir/out_ch default to 0 (Fwd, no rotation, channel 1) via calloc */
     }
     t->root = 9; /* A, matches tb3po's default */
@@ -923,6 +1059,14 @@ static int acid_tick(void *instance, int frames, int sample_rate,
         }
     }
 
+    /* FORCE-ONLY: Export dump players run unconditionally, before the
+     * !t->running early-return below -- a dump must complete whether or not
+     * the live transport is running, and must never touch (or be touched
+     * by) live playback's own advance_all()/position state. */
+    for (int i = 0; i < NUM_SEQS && count < max_out; i++) {
+        count += process_dump_for_seq(t, i, frames, sample_rate, &out_msgs[count], &out_lens[count], max_out - count);
+    }
+
     if (!t->running) return count;
 
     if (!t->pulse_sync_active) {
@@ -979,6 +1123,15 @@ static void acid_set_param(void *instance, const char *key, const char *val) {
             if (s->position >= s->length) s->position = s->length - 1;
         } else if (strcmp(k, "mutate") == 0) {
             mutate_pattern(s, t->scale);
+        } else if (strcmp(k, "dump") == 0) {
+            /* FORCE-ONLY: (re)start this seq's Export dump player -- see
+             * process_dump_for_seq(). Always restarts from step 0, even if
+             * a previous dump was still in progress. */
+            s->dump_active = 1;
+            s->dump_pos = 0;
+            s->dump_sample_accum = 0;
+            s->dump_last_note = -1;
+            s->dump_portamento_on = 0;
         } else if (strcmp(k, "density") == 0) {
             float v = parse_float(val, 0.7f);
             if (v < 0.0f) v = 0.0f;
@@ -1118,7 +1271,7 @@ static int acid_get_param(void *instance, const char *key, char *buf, int buf_le
         else if (strcmp(k, "dir") == 0) n = snprintf(buf, buf_len, "%d", s->dir);
         else if (strcmp(k, "channel") == 0) n = snprintf(buf, buf_len, "%d", s->out_ch + 1);  /* FORCE-ONLY */
         else if (strcmp(k, "auto_gen") == 0) n = snprintf(buf, buf_len, "%d", s->auto_gen_idx);  /* FORCE-ONLY */
-        else if (strcmp(k, "generate") == 0 || strcmp(k, "mutate") == 0) n = snprintf(buf, buf_len, "off");
+        else if (strcmp(k, "generate") == 0 || strcmp(k, "mutate") == 0 || strcmp(k, "dump") == 0) n = snprintf(buf, buf_len, "off");
         else return -1;
         if (n < 0) return -1;
         if (n >= buf_len) n = buf_len - 1;
@@ -1177,9 +1330,9 @@ static int acid_get_param(void *instance, const char *key, char *buf, int buf_le
             "{\"key\":\"a_dir\",\"name\":\"Direction A\",\"type\":\"enum\",\"options\":[\"Fwd\",\"Rev\",\"Pendulum\"],\"default\":0},"
             "{\"key\":\"b_dir\",\"name\":\"Direction B\",\"type\":\"enum\",\"options\":[\"Fwd\",\"Rev\",\"Pendulum\"],\"default\":0},"
             "{\"key\":\"jitter\",\"name\":\"Jitter\",\"type\":\"float\",\"min\":0.0,\"max\":1.0,\"step\":0.01,\"default\":0.0,\"unit\":\"%\"}"
-            /* a_auto_gen/b_auto_gen/cv_mode deliberately omitted -- all
-             * FORCE-ONLY, same convention as a_channel/b_channel above (no
-             * Move equivalent). */
+            /* a_auto_gen/b_auto_gen/cv_mode/a_dump/b_dump deliberately
+             * omitted -- all FORCE-ONLY, same convention as a_channel/
+             * b_channel above (no Move equivalent). */
             "]";
         n = snprintf(buf, buf_len, "%s", params);
     }

@@ -68,6 +68,7 @@ static const ParamSpec PARAMS[] = {
     { "a_offset",     'f',   0,     31,    29 },
     { "a_dir",        'e',   0,     2,     30 },   /* 3 options: Fwd/Rev/Pendulum */
     { "a_auto_gen",   'e',   0,     6,     31 },   /* FORCE-ONLY: 7 options, Off + 6 bar counts */
+    { "a_dump",       'w',   0,     1,     32 },   /* FORCE-ONLY: momentary, Export as MIDI Clip */
 
     { "b_generate",   'w',   0,     1,     40 },
     { "b_mutate",     'w',   0,     1,     41 },
@@ -81,6 +82,7 @@ static const ParamSpec PARAMS[] = {
     { "b_offset",     'f',   0,     31,    49 },
     { "b_dir",        'e',   0,     2,     50 },   /* 3 options: Fwd/Rev/Pendulum */
     { "b_auto_gen",   'e',   0,     6,     51 },   /* FORCE-ONLY: 7 options, Off + 6 bar counts */
+    { "b_dump",       'w',   0,     1,     52 },   /* FORCE-ONLY: momentary, Export as MIDI Clip */
 
     /* Global block moved to 70-79 (was 50-57) to make room for the two
      * per-seq Advanced blocks above without colliding -- see docs/CC-MAP.md.

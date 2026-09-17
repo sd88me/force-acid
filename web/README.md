@@ -12,15 +12,21 @@ process), not a nodeServer plugin — see `DESIGN.md` at the repo root for why.
 ## What it does
 
 - Renders every CC-mapped parameter (see `docs/CC-MAP.md`) as a knob, a
-  momentary button (Generate/Mutate), or an enum pill-selector (Scale/Root/
-  Reset/Dir/Auto Regen), grouped into SEQ A / SEQ B / GLOBAL panels — all
-  driven from `params.json`, the single source of truth for the CC map on
-  this side (kept in sync by hand with `docs/CC-MAP.md` and
-  `src/host_shim.cpp`'s `PARAMS` table, same convention `host_shim.cpp`
-  itself documents). Covers the full CC map, Advanced controls included
-  (Channel/Offset/Dir/Auto Regen per sequencer, Jitter global) — this is the
-  only control surface that does; the `.xtk` track template only covers 16
-  of the ~32 params (Seq A + B's core 8 each), see `docs/capture-xtk.md`.
+  momentary button (Generate/Mutate), a persistent toggle button (CV Mode),
+  or an enum pill-selector (Scale/Root/Reset/Dir/Auto Regen), grouped into
+  SEQ A / SEQ B / GLOBAL panels — all driven from `params.json`, the single
+  source of truth for the CC map on this side (kept in sync by hand with
+  `docs/CC-MAP.md` and `src/host_shim.cpp`'s `PARAMS` table, same convention
+  `host_shim.cpp` itself documents). Covers the full CC map, Advanced
+  controls included (Channel/Offset/Dir/Auto Regen per sequencer, Jitter/CV
+  Mode global) — this is the only control surface that does; the `.xtk`
+  track template only covers 16 of the ~35 params (Seq A + B's core 8 each),
+  see `docs/capture-xtk.md`.
+- An "Export sequence as MIDI clip" button per sequencer, not CC-mapped at
+  all — triggers `acid_core.c`'s Export dump (see `docs/CC-MAP.md`'s "Export
+  as MIDI Clip" section) via its own `/export` endpoint and writes a
+  Standard MIDI File to the Force's own Documents/Sequences folder plus a
+  backup copy alongside this addon.
 - A TRANSPOSE slider sends a live note-on/off on the control channel, same as
   playing a note into the control track.
 - An ENGINE button + status LED starts/stops the `force-acid` binary directly
