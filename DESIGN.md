@@ -196,6 +196,13 @@ Force IP: wifi screen, Shift + the info button. SSH user/pass `root` / `force`.
       expanded 12-scale set — all hardware-verified (CCs 28-30/48-50/78-79,
       see `docs/CC-MAP.md`). `acid_core.c` is upstream verbatim plus the
       channel patch above, both marked `FORCE-ONLY`.
+- [x] split the single shared Auto Gen into independent per-sequencer
+      `a_auto_gen`/`b_auto_gen` (CCs 31/51, relabeled "Auto Regen"/"REGEN" on
+      the web panel) — another `FORCE-ONLY` divergence from upstream's one
+      shared control, same pattern as `a_channel`/`b_channel`. `auto_gen_idx`/
+      `auto_gen_step_count` moved from the shared instance struct onto each
+      `acid_seq_t`. Hardware-verified: A and B hold independent Auto Regen
+      values simultaneously and echo back correctly via `/state`.
 - [ ] control-surface feedback (CC out on ch 16)
 - [ ] licensing note — inherits `schwung-acid`'s (tb3po = GPL-3.0); keep the
       `VEL_PYRAMID` attribution question from the upstream README in view

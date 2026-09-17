@@ -35,7 +35,9 @@ IN_PORT_MATCH = ("Mockba Acid", "In")
 OUT_PORT_MATCH = ("Mockba Acid", "Out")
 
 PARAMS = json.loads(PARAMS_PATH.read_text())
-PARAM_BY_KEY = {p["key"]: p for g in PARAMS["groups"] for p in g["params"]}
+# "spacer" entries are layout-only (empty grid cell to force a row break in
+# the web UI, see static/app.js's makeSpacer) -- no "key", nothing to map.
+PARAM_BY_KEY = {p["key"]: p for g in PARAMS["groups"] for p in g["params"] if "key" in p}
 CTRL_CHANNEL0 = PARAMS.get("control_channel", 1) - 1
 
 STATIC_FILES = {

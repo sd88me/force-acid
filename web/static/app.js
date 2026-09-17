@@ -194,7 +194,17 @@
     return wrap;
   }
 
+  function makeSpacer() {
+    // Empty grid cell -- used to force a row break in params.json's fixed
+    // 4-column layout when a row has fewer than 4 controls (e.g. the
+    // Generate/Mutate/Regen top row).
+    const wrap = document.createElement("div");
+    wrap.className = "control control-spacer";
+    return wrap;
+  }
+
   function buildControl(spec) {
+    if (spec.kind === "spacer") return makeSpacer();
     if (spec.kind === "momentary") return makeMomentary(spec);
     if (spec.kind === "enum") return makeEnum(spec);
     return makeKnob(spec);

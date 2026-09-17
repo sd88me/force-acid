@@ -7,11 +7,13 @@ running [MockbaMod](https://github.com/MockbaTheBorg/MockbaMod).
 **Status: v0.2 in progress, hardware-verified.** The generator tracks
 upstream `schwung-acid` (currently v1.1.1 — Jitter, per-sequencer Offset/
 Direction, Auto Gen, 12-scale set, all ported); the Move chain-host is
-reimplemented as a headless ALSA/RtMidi process, plus one Force-only
-addition upstream can't have: **independent Seq A / Seq B output MIDI
+reimplemented as a headless ALSA/RtMidi process, plus two Force-only
+additions upstream can't have: **independent Seq A / Seq B output MIDI
 channels** (`a_channel`/`b_channel`, like the original tb3po's two separate
 outputs — Move's chain host forces one channel for the whole slot, Force's
-host doesn't). All of the above is confirmed working end-to-end on a real
+host doesn't) and **independent per-sequencer Auto Regen**
+(`a_auto_gen`/`b_auto_gen`, replacing upstream's single shared Auto Gen).
+All of the above is confirmed working end-to-end on a real
 Force. A browser control panel (`web/`) and a Force track template
 (`addon/Force Acid Control.xtk`) also exist — see below. See
 [`DESIGN.md`](DESIGN.md) for what's still open before v1 (control-surface

@@ -7,9 +7,10 @@ output channel" below) — this replaces the old single `output_channel`/
 `--out-channel` concept entirely.
 
 CC numbers are chosen to sit clear of the ranges MockbaMod's MidiLoop docs warn
-about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A, Seq B, and Global
-(now split into the original 8 knobs plus an Advanced block moved out to
-70-79 to make room for each sequencer's own new Advanced controls).
+about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A (20-31), Seq B
+(40-51), and Global (70-78, split into the original 8 knobs plus an Advanced
+block moved out to make room for each sequencer's own Advanced controls,
+including each seq's own Auto Regen at 31/51).
 
 | Page | CC | Param | Wire range → value | Notes |
 |---|---|---|---|---|
@@ -24,6 +25,7 @@ about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A, Seq B, and Global
 | | 28 | `a_channel` | 0–127 → 1–16 | **FORCE-ONLY**, no Move equivalent |
 | | 29 | `a_offset` | 0–127 → 0–31 | read-side rotation, clamped to `< a_length` |
 | | 30 | `a_dir` | 0–127 → 0–2 | Fwd / Rev / Pendulum |
+| | 31 | `a_auto_gen` | 0–127 → 0–6 | **FORCE-ONLY**; Off / 1 / 2 / 4 / 8 / 16 / 32 bars — periodic auto re-Generate, Seq A only |
 | **Seq B** | 40 | `b_generate` | ≥64 fires | |
 | | 41 | `b_mutate` | ≥64 fires | |
 | | 42 | `b_density` | 0–127 → 0.00–1.00 | |
@@ -35,6 +37,7 @@ about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A, Seq B, and Global
 | | 48 | `b_channel` | 0–127 → 1–16 | **FORCE-ONLY**, no Move equivalent |
 | | 49 | `b_offset` | 0–127 → 0–31 | read-side rotation, clamped to `< b_length` |
 | | 50 | `b_dir` | 0–127 → 0–2 | Fwd / Rev / Pendulum |
+| | 51 | `b_auto_gen` | 0–127 → 0–6 | **FORCE-ONLY**; Off / 1 / 2 / 4 / 8 / 16 / 32 bars — periodic auto re-Generate, Seq B only |
 | **Global** | 70 | `scale` | 0–127 → 0–11 | 12 options, see below |
 | | 71 | `root` | 0–127 → 0–11 | C … B |
 | | 72 | `b_tune` | 0–127 → −24…+24 | Seq B interval from Seq A, semitones |
@@ -44,7 +47,6 @@ about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A, Seq B, and Global
 | | 76 | `reset_bars` | 0–127 → 0–4 | 1 / 2 / 4 / 8 bars, Off (default) |
 | | 77 | `swing` | 0–127 → 50–75 | 50 straight, 66 triplet, 75 max |
 | | 78 | `jitter` | 0–127 → 0.00–1.00 | per-tick chance of perturbing *which* step plays, never *when* |
-| | 79 | `auto_gen` | 0–127 → 0–6 | Off / 1 / 2 / 4 / 8 / 16 / 32 bars — periodic auto re-Generate, both seqs |
 
 ## Per-sequence output channel (FORCE-ONLY)
 
@@ -73,7 +75,7 @@ so the useful CC values are:
 - **root** (12): 0, 12, 23, 35, 46, 58, 69, 81, 92, 104, 115, 127
 - **reset_bars** (5): 0, 32, 64, 95, 127 (127 = Off, the default)
 - **a_dir / b_dir** (3): 0, 64, 127 — Fwd, Rev, Pendulum
-- **auto_gen** (7): 0, 21, 42, 64, 85, 106, 127 — Off, 1, 2, 4, 8, 16, 32 bars
+- **a_auto_gen / b_auto_gen** (7): 0, 21, 42, 64, 85, 106, 127 — Off, 1, 2, 4, 8, 16, 32 bars
 
 ## Note input
 

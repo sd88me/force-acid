@@ -108,9 +108,9 @@ static const uint8_t VEL_PYRAMID[16] = {0, 14, 15, 6, 1, 2, 10, 3, 12, 13, 11, 5
  * boundary (index 4 = "Off", handled separately, never indexes this). */
 static const int BAR_STEPS[4] = {16, 32, 64, 128};
 
-/* Auto Gen (Advanced page) bar-boundary lookup: index 1..6 -> 16th-notes per
+/* Auto Regen (Advanced page) bar-boundary lookup: index 1..6 -> 16th-notes per
  * automatic-regenerate boundary; index 0 = "Off", handled separately and
- * never indexes this. Kept separate from BAR_STEPS[] on purpose -- Auto Gen's
+ * never indexes this. Kept separate from BAR_STEPS[] on purpose -- Auto Regen's
  * enum puts "Off" first and reaches further (up to 32 bars) than Reset Both. */
 static const int AUTO_GEN_BAR_STEPS[6] = {16, 32, 64, 128, 256, 512};
 
@@ -154,6 +154,14 @@ typedef struct {
     int last_note_on;   /* -1 = none */
     int portamento_on;
     long gate_samples_remaining;
+
+    /* FORCE-ONLY: independent per-seq Auto Regen, not a Move/upstream param
+     * (upstream/original had one shared Auto Gen for both sequencers -- see
+     * acid_inst_t's history / a_channel comment above for the same pattern).
+     * idx: 0=Off, 1..6 -> {1,2,4,8,16,32} bars, own counter so A and B free-run
+     * independently instead of sharing one bar-boundary. */
+    int auto_gen_idx;
+    long auto_gen_step_count;
 } acid_seq_t;
 
 typedef struct {
@@ -196,13 +204,11 @@ typedef struct {
 
     long bar_step_count;  /* 16th-notes advanced since the last bar-reset */
 
-    /* Advanced page -- shared across both sequencers. */
+    /* Advanced page -- shared across both sequencers. Per-seq Auto Regen
+     * (a_auto_gen/b_auto_gen) lives on acid_seq_t instead -- see its comment
+     * there. */
     float jitter;              /* 0.0..1.0: per-tick chance of perturbing WHICH
                                * step plays (not WHEN -- kept clear of swing) */
-    int auto_gen_idx;          /* 0=Off, 1..6 -> {1,2,4,8,16,32} bars */
-    long auto_gen_step_count;  /* own counter, parallel to bar_step_count, so
-                               * Auto Gen and Reset Both keep independent
-                               * intervals rather than sharing one */
 } acid_inst_t;
 
 static const host_api_v1_t *g_host = NULL;
@@ -631,24 +637,26 @@ static int advance_all(acid_inst_t *t, uint8_t out_msgs[][3], int out_lens[], in
         t->bar_step_count = 0;
     }
 
-    /* Auto Gen (Advanced) -- its own bar counter, independent of Reset Both's.
-     * On its boundary, re-roll both sequencers from a fresh per-seq seed (the
-     * same call the "generate" param makes). Done before the position snap /
-     * emit below, so the freshly generated pattern is what plays this tick. If
-     * Auto Gen and Reset Both are set to the same interval they fire on the
-     * same tick: regenerate first, then snap to step 0 -- intended. */
-    if (t->auto_gen_idx != 0) {
-        t->auto_gen_step_count++;
-        if (t->auto_gen_step_count >= AUTO_GEN_BAR_STEPS[t->auto_gen_idx - 1]) {
-            t->auto_gen_step_count = 0;
-            for (int i = 0; i < NUM_SEQS; i++) {
-                acid_seq_t *s = &t->seq[i];
+    /* Auto Regen (Advanced) -- FORCE-ONLY: independent per-seq bar counter
+     * (see acid_seq_t's comment), each running against Reset Both's shared
+     * counter but not against each other. On its own boundary, re-roll just
+     * that sequencer from a fresh seed (the same call the "generate" param
+     * makes). Done before the position snap / emit below, so the freshly
+     * generated pattern is what plays this tick. If a seq's Auto Regen and
+     * Reset Both are set to the same interval they fire on the same tick:
+     * regenerate first, then snap to step 0 -- intended. */
+    for (int i = 0; i < NUM_SEQS; i++) {
+        acid_seq_t *s = &t->seq[i];
+        if (s->auto_gen_idx != 0) {
+            s->auto_gen_step_count++;
+            if (s->auto_gen_step_count >= AUTO_GEN_BAR_STEPS[s->auto_gen_idx - 1]) {
+                s->auto_gen_step_count = 0;
                 regenerate_pattern(s, t->scale, rng_next_u32(&s->rng));
                 if (s->position >= s->length) s->position = s->length - 1;
             }
+        } else {
+            s->auto_gen_step_count = 0;
         }
-    } else {
-        t->auto_gen_step_count = 0;
     }
 
     int vel_a, vel_b;
@@ -777,11 +785,11 @@ static int acid_process_midi(void *instance, const uint8_t *in_msg, int in_len,
             for (int i = 0; i < NUM_SEQS; i++) {
                 t->seq[i].position = t->seq[i].length - 1;
                 t->seq[i].pendulum_fwd = 1;
+                t->seq[i].auto_gen_step_count = 0;
             }
             t->clock_pulses = 5; /* first 0xF8 bumps to 0 -> fires step 0 on the downbeat */
             t->sample_accum = 0;
             t->bar_step_count = 0;
-            t->auto_gen_step_count = 0;
             t->swing_pulse_idx = 0;
         }
         return 0;
@@ -870,11 +878,11 @@ static int acid_tick(void *instance, int frames, int sample_rate,
                 for (int i = 0; i < NUM_SEQS; i++) {
                     t->seq[i].position = t->seq[i].length - 1;
                     t->seq[i].pendulum_fwd = 1;
+                    t->seq[i].auto_gen_step_count = 0;
                 }
                 t->clock_pulses = 5;
                 t->sample_accum = 0;
                 t->bar_step_count = 0;
-                t->auto_gen_step_count = 0;
                 t->swing_pulse_idx = 0;
             } else if (cs == MOVE_CLOCK_STATUS_STOPPED && t->running) {
                 t->running = 0;
@@ -1007,6 +1015,14 @@ static void acid_set_param(void *instance, const char *key, const char *val) {
             if (v < 1) v = 1;
             if (v > 16) v = 16;
             s->out_ch = v - 1;
+        } else if (strcmp(k, "auto_gen") == 0) {
+            /* FORCE-ONLY: per-seq Auto Regen (a_auto_gen/b_auto_gen) -- see
+             * acid_seq_t's comment. */
+            int v = parse_int(val, 0);
+            if (v < 0) v = 0;
+            if (v > 6) v = 6;
+            s->auto_gen_idx = v;
+            s->auto_gen_step_count = 0;
         }
         return;
     }
@@ -1037,12 +1053,6 @@ static void acid_set_param(void *instance, const char *key, const char *val) {
         if (v < 0.0f) v = 0.0f;
         if (v > 1.0f) v = 1.0f;
         t->jitter = v;
-    } else if (strcmp(key, "auto_gen") == 0) {
-        int v = parse_int(val, 0);
-        if (v < 0) v = 0;
-        if (v > 6) v = 6;
-        t->auto_gen_idx = v;
-        t->auto_gen_step_count = 0;
     }
 }
 
@@ -1070,6 +1080,7 @@ static int acid_get_param(void *instance, const char *key, char *buf, int buf_le
         else if (strcmp(k, "offset") == 0) n = snprintf(buf, buf_len, "%d", s->offset);
         else if (strcmp(k, "dir") == 0) n = snprintf(buf, buf_len, "%d", s->dir);
         else if (strcmp(k, "channel") == 0) n = snprintf(buf, buf_len, "%d", s->out_ch + 1);  /* FORCE-ONLY */
+        else if (strcmp(k, "auto_gen") == 0) n = snprintf(buf, buf_len, "%d", s->auto_gen_idx);  /* FORCE-ONLY */
         else if (strcmp(k, "generate") == 0 || strcmp(k, "mutate") == 0) n = snprintf(buf, buf_len, "off");
         else return -1;
         if (n < 0) return -1;
@@ -1083,7 +1094,6 @@ static int acid_get_param(void *instance, const char *key, char *buf, int buf_le
     else if (strcmp(key, "reset_bars") == 0) n = snprintf(buf, buf_len, "%d", t->reset_bars_idx);
     else if (strcmp(key, "swing") == 0) n = snprintf(buf, buf_len, "%d", t->swing_pct);
     else if (strcmp(key, "jitter") == 0) n = snprintf(buf, buf_len, "%.3f", t->jitter);
-    else if (strcmp(key, "auto_gen") == 0) n = snprintf(buf, buf_len, "%d", t->auto_gen_idx);
     else if (strcmp(key, "chain_params") == 0) {
         /* Not actually consulted for midi_fx loading -- chain_midi.c reads
          * chain_params straight out of module.json on disk (parse_chain_params),
@@ -1128,8 +1138,10 @@ static int acid_get_param(void *instance, const char *key, char *buf, int buf_le
             "{\"key\":\"b_offset\",\"name\":\"Offset B\",\"type\":\"float\",\"min\":0,\"max\":31,\"step\":1,\"default\":0,\"display_format\":\".0f\"},"
             "{\"key\":\"a_dir\",\"name\":\"Direction A\",\"type\":\"enum\",\"options\":[\"Fwd\",\"Rev\",\"Pendulum\"],\"default\":0},"
             "{\"key\":\"b_dir\",\"name\":\"Direction B\",\"type\":\"enum\",\"options\":[\"Fwd\",\"Rev\",\"Pendulum\"],\"default\":0},"
-            "{\"key\":\"jitter\",\"name\":\"Jitter\",\"type\":\"float\",\"min\":0.0,\"max\":1.0,\"step\":0.01,\"default\":0.0,\"unit\":\"%\"},"
-            "{\"key\":\"auto_gen\",\"name\":\"Auto Gen\",\"type\":\"enum\",\"options\":[\"Off\",\"1 bar\",\"2 bars\",\"4 bars\",\"8 bars\",\"16 bars\",\"32 bars\"],\"default\":0}"
+            "{\"key\":\"jitter\",\"name\":\"Jitter\",\"type\":\"float\",\"min\":0.0,\"max\":1.0,\"step\":0.01,\"default\":0.0,\"unit\":\"%\"}"
+            /* a_auto_gen/b_auto_gen deliberately omitted -- FORCE-ONLY,
+             * same convention as a_channel/b_channel above (no Move
+             * equivalent; upstream had one shared Auto Gen, not two). */
             "]";
         n = snprintf(buf, buf_len, "%s", params);
     }

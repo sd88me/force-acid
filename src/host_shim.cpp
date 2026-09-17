@@ -67,6 +67,7 @@ static const ParamSpec PARAMS[] = {
     { "a_channel",    'i',   1,     16,    28 },   /* FORCE-ONLY: no Move equivalent */
     { "a_offset",     'f',   0,     31,    29 },
     { "a_dir",        'e',   0,     2,     30 },   /* 3 options: Fwd/Rev/Pendulum */
+    { "a_auto_gen",   'e',   0,     6,     31 },   /* FORCE-ONLY: 7 options, Off + 6 bar counts */
 
     { "b_generate",   'w',   0,     1,     40 },
     { "b_mutate",     'w',   0,     1,     41 },
@@ -79,9 +80,12 @@ static const ParamSpec PARAMS[] = {
     { "b_channel",    'i',   1,     16,    48 },   /* FORCE-ONLY: no Move equivalent */
     { "b_offset",     'f',   0,     31,    49 },
     { "b_dir",        'e',   0,     2,     50 },   /* 3 options: Fwd/Rev/Pendulum */
+    { "b_auto_gen",   'e',   0,     6,     51 },   /* FORCE-ONLY: 7 options, Off + 6 bar counts */
 
     /* Global block moved to 70-79 (was 50-57) to make room for the two
-     * per-seq Advanced blocks above without colliding -- see docs/CC-MAP.md. */
+     * per-seq Advanced blocks above without colliding -- see docs/CC-MAP.md.
+     * cc 79 (old shared auto_gen) is retired -- replaced by a_auto_gen/
+     * b_auto_gen above. */
     { "scale",        'e',   0,     11,    70 },   /* 12 options (v1.1 curated set) */
     { "root",         'e',   0,     11,    71 },   /* 12 options */
     { "b_tune",       'i',  -24,    24,    72 },
@@ -91,7 +95,6 @@ static const ParamSpec PARAMS[] = {
     { "reset_bars",   'e',   0,     4,     76 },   /* 5 options  */
     { "swing",        'f',   50,    75,    77 },
     { "jitter",       'f',   0.0,   1.0,   78 },
-    { "auto_gen",     'e',   0,     6,     79 },   /* 7 options: Off + 6 bar counts */
 };
 static const int N_PARAMS = (int)(sizeof(PARAMS) / sizeof(PARAMS[0]));
 

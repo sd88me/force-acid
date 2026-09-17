@@ -25,6 +25,7 @@ forward_unmapped = 1      # 1 = pass CCs we don't use through to the synth, 0 = 
 # a_channel  = 28
 # a_offset   = 29
 # a_dir      = 30
+# a_auto_gen = 31
 
 # b_generate = 40
 # b_mutate   = 41
@@ -37,6 +38,7 @@ forward_unmapped = 1      # 1 = pass CCs we don't use through to the synth, 0 = 
 # b_channel  = 48
 # b_offset   = 49
 # b_dir      = 50
+# b_auto_gen = 51
 
 # scale      = 70
 # root       = 71
@@ -47,4 +49,3 @@ forward_unmapped = 1      # 1 = pass CCs we don't use through to the synth, 0 = 
 # reset_bars = 76
 # swing      = 77
 # jitter     = 78
-# auto_gen   = 79

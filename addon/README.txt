@@ -55,12 +55,16 @@ table with enum landing points in docs/CC-MAP.md)
    26  Length A (2-32)   46  Length B (2-32)   76  Reset Both (1/2/4/8/Off)
    27  Gate A            47  Gate B            77  Swing      (50..75)
    28  Channel A (1-16)  48  Channel B (1-16)  78  Jitter     (0..100%)
-   29  Offset A (0-31)   49  Offset B (0-31)   79  Auto Gen   (Off/1/2/4/8/16/32 bars)
+   29  Offset A (0-31)   49  Offset B (0-31)
    30  Dir A (Fwd/Rev/Pendulum)  50  Dir B (Fwd/Rev/Pendulum)
+   31  Auto Regen A (Off/1/2/4/8/16/32 bars)
+                        51  Auto Regen B (Off/1/2/4/8/16/32 bars)
 
   Generate / Mutate trigger on CC value >= 64 (treat as a momentary button).
   All other CCs are the full 0-127 range scaled to the parameter.
-  Channel A/B, Offset A/B and Dir A/B have no Move equivalent -- see DESIGN.md.
+  Channel A/B, Offset A/B, Dir A/B and Auto Regen A/B have no Move equivalent
+  -- see DESIGN.md. Auto Regen A/B replaces the old single shared Auto Gen
+  with an independent per-sequencer bar counter.
 
 OPTIONS (in run_force-acid.sh or on the command line)
    -v                     log every parameter change to stderr
@@ -70,8 +74,8 @@ OPTIONS (in run_force-acid.sh or on the command line)
    --config PATH          CC-map / channel overrides (see force-acid.conf.example)
 
 STATUS
-  v0.2 in progress - jitter, per-step Offset/Direction, Auto Gen, expanded
-  scale set (12), and independent Seq A/Seq B output channels have all been
+  v0.2 in progress - jitter, per-step Offset/Direction, per-seq Auto Regen,
+  expanded scale set (12), and independent Seq A/Seq B output channels have all been
   ported from the current schwung-acid and verified on real Force hardware
   (ports register, transport clock drives stepping, notes/slide reach the
   right channel per sequencer, CC changes take effect live). No parameter

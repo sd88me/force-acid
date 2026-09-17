@@ -7,15 +7,21 @@
       "params": [
         { "key": "a_generate", "label": "GENERATE", "cc": 20, "kind": "momentary" },
         { "key": "a_mutate",   "label": "MUTATE",   "cc": 21, "kind": "momentary" },
+        { "key": "a_auto_gen", "label": "REGEN",     "cc": 31, "kind": "enum", "options": ["OFF", "1 BAR", "2 BARS", "4 BARS", "8 BARS", "16 BARS", "32 BARS"] },
+
+        { "key": "a_algo",     "label": "ALGO A",   "cc": 74, "kind": "int",   "lo": 1,    "hi": 16 },
         { "key": "a_density",  "label": "DENSITY",  "cc": 22, "kind": "float", "lo": 0,    "hi": 1,   "fmt": "pct" },
         { "key": "a_accent",   "label": "ACCENT",   "cc": 23, "kind": "float", "lo": 0,    "hi": 1,   "fmt": "pct" },
         { "key": "a_slide",    "label": "SLIDE",    "cc": 24, "kind": "float", "lo": 0,    "hi": 1,   "fmt": "pct" },
+
         { "key": "a_octaves",  "label": "OCTAVES",  "cc": 25, "kind": "int",   "lo": 1,    "hi": 3 },
         { "key": "a_length",   "label": "LENGTH",   "cc": 26, "kind": "int",   "lo": 2,    "hi": 32 },
-        { "key": "a_gate",     "label": "GATE",     "cc": 27, "kind": "float", "lo": 0.05, "hi": 1,   "fmt": "pct" },
-        { "key": "a_channel",  "label": "CHANNEL",  "cc": 28, "kind": "int",   "lo": 1,    "hi": 16 },
         { "key": "a_offset",   "label": "OFFSET",   "cc": 29, "kind": "int",   "lo": 0,    "hi": 31 },
-        { "key": "a_dir",      "label": "DIR",      "cc": 30, "kind": "enum", "options": ["FWD", "REV", "PENDUL"] }
+        { "key": "a_gate",     "label": "GATE",     "cc": 27, "kind": "float", "lo": 0.05, "hi": 1,   "fmt": "pct" },
+
+        { "key": "a_dir",      "label": "DIR",      "cc": 30, "kind": "enum", "options": ["FWD", "REV", "PENDUL"] },
+        { "key": "a_channel",  "label": "CHANNEL",  "cc": 28, "kind": "int",   "lo": 1,    "hi": 16 },
+        { "key": "blend",      "label": "BLEND A>B", "cc": 73, "kind": "int",  "lo": -63,  "hi": 64 }
       ]
     },
     {
@@ -24,15 +30,21 @@
       "params": [
         { "key": "b_generate", "label": "GENERATE", "cc": 40, "kind": "momentary" },
         { "key": "b_mutate",   "label": "MUTATE",   "cc": 41, "kind": "momentary" },
+        { "key": "b_auto_gen", "label": "REGEN",     "cc": 51, "kind": "enum", "options": ["OFF", "1 BAR", "2 BARS", "4 BARS", "8 BARS", "16 BARS", "32 BARS"] },
+
+        { "key": "b_algo",     "label": "ALGO B",   "cc": 75, "kind": "int",   "lo": 1,    "hi": 16 },
         { "key": "b_density",  "label": "DENSITY",  "cc": 42, "kind": "float", "lo": 0,    "hi": 1,   "fmt": "pct" },
         { "key": "b_accent",   "label": "ACCENT",   "cc": 43, "kind": "float", "lo": 0,    "hi": 1,   "fmt": "pct" },
         { "key": "b_slide",    "label": "SLIDE",    "cc": 44, "kind": "float", "lo": 0,    "hi": 1,   "fmt": "pct" },
+
         { "key": "b_octaves",  "label": "OCTAVES",  "cc": 45, "kind": "int",   "lo": 1,    "hi": 3 },
         { "key": "b_length",   "label": "LENGTH",   "cc": 46, "kind": "int",   "lo": 2,    "hi": 32 },
-        { "key": "b_gate",     "label": "GATE",     "cc": 47, "kind": "float", "lo": 0.05, "hi": 1,   "fmt": "pct" },
-        { "key": "b_channel",  "label": "CHANNEL",  "cc": 48, "kind": "int",   "lo": 1,    "hi": 16 },
         { "key": "b_offset",   "label": "OFFSET",   "cc": 49, "kind": "int",   "lo": 0,    "hi": 31 },
-        { "key": "b_dir",      "label": "DIR",      "cc": 50, "kind": "enum", "options": ["FWD", "REV", "PENDUL"] }
+        { "key": "b_gate",     "label": "GATE",     "cc": 47, "kind": "float", "lo": 0.05, "hi": 1,   "fmt": "pct" },
+
+        { "key": "b_dir",      "label": "DIR",      "cc": 50, "kind": "enum", "options": ["FWD", "REV", "PENDUL"] },
+        { "key": "b_channel",  "label": "CHANNEL",  "cc": 48, "kind": "int",   "lo": 1,    "hi": 16 },
+        { "key": "b_tune",     "label": "TUNE OFFSET", "cc": 72, "kind": "int", "lo": -24, "hi": 24 }
       ]
     },
     {
@@ -41,14 +53,9 @@
       "params": [
         { "key": "scale",      "label": "SCALE",      "cc": 70, "kind": "enum", "options": ["MINOR", "PHRYGIAN", "HARM MIN", "MIN PENT", "DORIAN", "MAJOR", "PHRYG DOM", "LOCRIAN", "WHOLE TONE", "HUNG MIN", "MIN BLUES", "CHROMATIC"] },
         { "key": "root",       "label": "ROOT",       "cc": 71, "kind": "enum", "options": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] },
-        { "key": "b_tune",     "label": "TUNE B",     "cc": 72, "kind": "int",   "lo": -24, "hi": 24 },
-        { "key": "blend",      "label": "BLEND",      "cc": 73, "kind": "int",   "lo": -63, "hi": 64 },
-        { "key": "a_algo",     "label": "ALGO A",     "cc": 74, "kind": "int",   "lo": 1,   "hi": 16 },
-        { "key": "b_algo",     "label": "ALGO B",     "cc": 75, "kind": "int",   "lo": 1,   "hi": 16 },
         { "key": "reset_bars", "label": "RESET",      "cc": 76, "kind": "enum", "options": ["1 BAR", "2 BARS", "4 BARS", "8 BARS", "OFF"] },
         { "key": "swing",      "label": "SWING",      "cc": 77, "kind": "float", "lo": 50, "hi": 75, "fmt": "int" },
-        { "key": "jitter",     "label": "JITTER",     "cc": 78, "kind": "float", "lo": 0,  "hi": 1,   "fmt": "pct" },
-        { "key": "auto_gen",   "label": "AUTO GEN",   "cc": 79, "kind": "enum", "options": ["OFF", "1 BAR", "2 BARS", "4 BARS", "8 BARS", "16 BARS", "32 BARS"] }
+        { "key": "jitter",     "label": "JITTER",     "cc": 78, "kind": "float", "lo": 0,  "hi": 1,   "fmt": "pct" }
       ]
     }
   ]

@@ -13,12 +13,12 @@ process), not a nodeServer plugin — see `DESIGN.md` at the repo root for why.
 
 - Renders every CC-mapped parameter (see `docs/CC-MAP.md`) as a knob, a
   momentary button (Generate/Mutate), or an enum pill-selector (Scale/Root/
-  Reset/Dir/Auto Gen), grouped into SEQ A / SEQ B / GLOBAL panels — all
+  Reset/Dir/Auto Regen), grouped into SEQ A / SEQ B / GLOBAL panels — all
   driven from `params.json`, the single source of truth for the CC map on
   this side (kept in sync by hand with `docs/CC-MAP.md` and
   `src/host_shim.cpp`'s `PARAMS` table, same convention `host_shim.cpp`
   itself documents). Covers the full CC map, Advanced controls included
-  (Channel/Offset/Dir per sequencer, Jitter/Auto Gen global) — this is the
+  (Channel/Offset/Dir/Auto Regen per sequencer, Jitter global) — this is the
   only control surface that does; the `.xtk` track template only covers 16
   of the ~32 params (Seq A + B's core 8 each), see `docs/capture-xtk.md`.
 - A TRANSPOSE slider sends a live note-on/off on the control channel, same as
