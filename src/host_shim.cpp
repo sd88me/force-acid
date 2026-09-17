@@ -163,7 +163,7 @@ static void send_out(const uint8_t (*msgs)[3], const int *lens, int n) {
 
 /* ---------------------------------------------------------------------------
  * v0.2: parameter feedback -- CC out on FEEDBACK_CHANNEL, same CC numbers as
- * input, so anything listening on Mockba Acid:Out (the web panel, a hardware
+ * input, so anything listening on Acid:Out (Mockba) (the web panel, a hardware
  * controller with motorized/LED feedback, another Force track) can display
  * the engine's TRUE current value instead of just "whatever this client last
  * sent". Sent after every CC-in that actually changes a param, and broadcast
@@ -422,7 +422,7 @@ static void usage(const char *me) {
     std::fprintf(stderr,
         "usage: %s [options]\n"
         "  -v                    verbose (log every param change)\n"
-        "  --client NAME         ALSA client name         (default: Mockba Acid)\n"
+        "  --client NAME         ALSA client name         (default: Acid)\n"
         "  --control-channel N   1-16, CC + note-in       (default: 1)\n"
         "  --a-channel N         1-16, Seq A note output   (default: 1)\n"
         "  --b-channel N         1-16, Seq B note output   (default: 1)\n"
@@ -433,7 +433,7 @@ static void usage(const char *me) {
 }
 
 int main(int argc, char **argv) {
-    std::string client = "Mockba Acid";
+    std::string client = "Acid";
     const char *cfg = nullptr;
     float bpm0 = 120.0f;
 
@@ -472,8 +472,8 @@ int main(int argc, char **argv) {
     try {
         in = new RtMidiIn(RtMidi::UNSPECIFIED, client, 256);
         g_out = new RtMidiOut(RtMidi::UNSPECIFIED, client);
-        in->openVirtualPort("In");
-        g_out->openVirtualPort("Out");
+        in->openVirtualPort("In (Mockba)");
+        g_out->openVirtualPort("Out (Mockba)");
         in->ignoreTypes(true, false, true);   /* sysex off, TIMING ON, sensing off */
         in->setCallback(&on_midi, nullptr);
     } catch (RtMidiError &e) {
@@ -485,9 +485,9 @@ int main(int argc, char **argv) {
     std::signal(SIGTERM, on_signal);
 
     std::fprintf(stderr,
-        "[acid] up. ports '%s:In' / '%s:Out'  ctrl ch %d  A ch %s  B ch %s\n"
-        "[acid] connect Force transport SYNC+CLOCK to '%s:In', route a MIDI track\n"
-        "[acid] to it on ch %d for CC control, and synth track(s) FROM '%s:Out'\n"
+        "[acid] up. ports '%s:In (Mockba)' / '%s:Out (Mockba)'  ctrl ch %d  A ch %s  B ch %s\n"
+        "[acid] connect Force transport SYNC+CLOCK to '%s:In (Mockba)', route a MIDI track\n"
+        "[acid] to it on ch %d for CC control, and synth track(s) FROM '%s:Out (Mockba)'\n"
         "[acid] (Seq A and Seq B can share one channel or use two -- see a_channel/b_channel).\n",
         client.c_str(), client.c_str(), g_ctrl_ch + 1, g_init_a_channel.c_str(), g_init_b_channel.c_str(),
         client.c_str(), g_ctrl_ch + 1, client.c_str());

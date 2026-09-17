@@ -22,13 +22,13 @@ repo - nothing further to do here.
 
 ```js
     {
-        // Force Acid runs its own standalone server (not an in-process
+        // Acid runs its own standalone server (not an in-process
         // nodeServer module -- see force-acid/web/README.md). URL/PARAM stay
         // a plain relative path on purpose (home.js's escape() call mangles
         // absolute "http://host:port" URLs -- see forceacid.js); clicking
         // this link hits nodeServer's own /forceacid route, which
         // forceacid.js immediately 302-redirects out to the real panel.
-        NAME: "Force Acid",
+        NAME: "Acid",
         PATH: "./api/endpoints/forceacid.js",
         PARAM: "/forceacid",
         URL: "/forceacid",
