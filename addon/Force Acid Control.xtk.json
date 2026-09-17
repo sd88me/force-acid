@@ -1708,7 +1708,7 @@
     "midiInputRoute": {
       "inputPort": {
         "type": 0,
-        "deviceName": "Mockba Acid",
+        "deviceName": "Acid:In (Mockba)",
         "deviceId": "0-0",
         "os": "Linux"
       },
@@ -1717,7 +1717,7 @@
     "midiOutputRoute": {
       "outputPort": {
         "type": 1,
-        "deviceName": "Mockba Acid - CH:1",
+        "deviceName": "Acid:Out (Mockba)",
         "deviceId": "0-0",
         "os": "Linux"
       },

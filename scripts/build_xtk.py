@@ -155,37 +155,48 @@ def make_qlink(label, cc, track_name, momentary):
 
 def fix_midi_routes(doc, control_channel):
     """Point data.midiInputRoute/midiOutputRoute at force-acid's own ALSA
-    client instead of the leftover "Mockba Harpie 4T" one -- see
-    LEFTOVER-DATA FIX. host_shim.cpp's default ALSA client name is
-    "Mockba Acid" (--client, see its usage text); Harpie4T's own captured
-    naming convention was "Mockba <ClientName>" for the input route and
-    "Mockba <ClientName> - CH:<1-based channel>" for the output route, so
-    the same pattern is reused here.
+    ports instead of the leftover "Mockba Harpie 4T" one -- see
+    LEFTOVER-DATA FIX.
 
-    UNCONFIRMED, same caveat as the rest of this file: `deviceId` (e.g.
-    "137-0") looks like a cached ALSA client:port number from whatever this
-    was captured on -- those are assigned dynamically per-boot, so
-    Harpie4T's real numbers are certainly stale/wrong for a different
-    device/session too. Reset to "0-0" here as a clearly-unresolved
-    placeholder on the assumption the Force re-resolves routes by
-    deviceName when the cached id doesn't match anything live -- not
-    verified against real firmware behavior. If Q-Link changes don't
-    actually reach force-acid after loading this template, re-pointing the
-    track's MIDI I/O by hand in the Force UI once should also fix the
-    deviceId going forward; report back either way.
+    CORRECTED (previous version of this function used the wrong name -- see
+    below): host_shim.cpp passes "Mockba Acid" as the RtMidi client name,
+    but that is NOT what actually shows up in ALSA/mido's port list on real
+    hardware. Confirmed live (mido.get_output_names()/get_input_names(),
+    same investigation that fixed web/server.py's identical bug --
+    web/server.py's IN_PORT_MATCH/OUT_PORT_MATCH comment has the full
+    story): MockbaMod reorders it into "Acid:In (Mockba)" /
+    "Acid:Out (Mockba)" (an ephemeral numeric client:port suffix follows,
+    e.g. "... 141:0", which is NOT included here since it's assigned fresh
+    every boot). The previous version of this function used the seed's own
+    "Mockba Harpie 4T" / "Mockba Harpie 4T - CH:13" convention verbatim
+    with force-acid's name substituted in, which was never actually
+    correct on this device -- that donor sample was very likely captured
+    against a different RtMidi/MockbaMod version's naming behavior.
+
+    STILL UNCONFIRMED: whether Force's own route-matching needs the literal
+    "(Mockba)" suffix, does prefix matching, or something else; whether the
+    "- CH:N" suffix the donor sample had on its output route matters at all
+    here (dropped -- no evidence it's part of this device's real
+    convention, unlike the base name which is now directly observed).
+    `deviceId` (e.g. "137-0") looks like a cached, per-boot-ephemeral ALSA
+    client:port number -- reset to "0-0" here as a clearly-unresolved
+    placeholder on the assumption Force re-resolves routes by deviceName
+    when the cached id doesn't match anything live -- not verified. If
+    Q-Link changes don't reach force-acid after loading this template,
+    re-pointing the track's MIDI I/O by hand once in the Force UI should
+    also fix the deviceId going forward; report back either way.
     """
-    ch0 = control_channel - 1  # host_shim.cpp/force-acid.conf are 1-based; this file's own
-                                # outputChannel:12 paired with deviceName "...CH:13" confirms
-                                # the numeric field is 0-based, the display suffix 1-based.
-    client = "Mockba Acid"
+    ch0 = control_channel - 1  # host_shim.cpp/force-acid.conf are 1-based; the numeric
+                                # outputChannel field itself is 0-based.
+    client = "Acid"
 
     in_route = doc["data"]["midiInputRoute"]
-    in_route["inputPort"]["deviceName"] = client
+    in_route["inputPort"]["deviceName"] = f"{client}:In (Mockba)"
     in_route["inputPort"]["deviceId"] = "0-0"
     in_route["inputChannel"] = ch0
 
     out_route = doc["data"]["midiOutputRoute"]
-    out_route["outputPort"]["deviceName"] = f"{client} - CH:{control_channel}"
+    out_route["outputPort"]["deviceName"] = f"{client}:Out (Mockba)"
     out_route["outputPort"]["deviceId"] = "0-0"
     out_route["outputChannel"] = ch0
 
