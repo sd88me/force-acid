@@ -75,13 +75,54 @@ length/gate`, CC 20-27 and 40-47) and the self-referential template name
 fields, and re-emits the gzip+header framing.
 
 ```bash
-python3 scripts/build_xtk.py                        # -> addon/Force Acid Control.xtk
+python3 scripts/build_xtk.py                        # -> addon/Force Acid Control.xtk (+ .xtk.json)
 python3 scripts/build_xtk.py --track-name "MY TRACK" # if you don't use "ACID CTRL"
 ```
 
 Regenerate it (same command) if `docs/CC-MAP.md`'s CC assignments ever
 change — the two need to stay in sync by hand, same convention as
 `host_shim.cpp`'s `PARAMS[]` table.
+
+### Leftover donor-addon data (found, fixed)
+
+`customQLinks` was always fully overwritten, but on-device inspection found
+the seed carried real, un-scrubbed state from whatever addon it was actually
+captured controlling — not just Harpie4T's own chrome:
+
+- `data.program.customisable.mapping` (127 entries) is a *different*
+  addon's own generator-engine automation-parameter names (e.g. `"1 Mode
+  0-25 (1 Cluster 0-59)"`, `"1 Rand Rotate (CC 86)"`) — would have leaked
+  into the Force's automation-parameter picker for this track. Fixed by
+  `blank_mapping()`: every entry reset to the same `{"automationIndex":
+  2147483647, "value": 0.0, "name": ""}` shape real "unused" slots already
+  use elsewhere in the same file (not a guess — 30 of the original 127
+  entries already looked exactly like this).
+- `data.midiInputRoute`/`midiOutputRoute` pointed at `"Mockba Harpie 4T"` —
+  a literally different ALSA client than force-acid's own (`"Mockba Acid"`,
+  see `host_shim.cpp`'s `--client` default). Fixed by `fix_midi_routes()`,
+  same naming convention, our own client name and `--control-channel`.
+  **Still unconfirmed on real hardware**: the cached `deviceId` fields
+  (e.g. `"137-0"`) look like stale per-boot ALSA client:port numbers reset
+  here to a `"0-0"` placeholder on the assumption Force re-resolves by
+  `deviceName` when the id doesn't match — not verified. If Q-Link changes
+  don't reach force-acid after loading the template, re-point the track's
+  MIDI I/O by hand once in the Force UI and report back.
+
+`audit()` now scans every build for leftover donor-addon strings
+(`"RiffMaker"`, `"Harpie"`) and refuses to write a `.xtk` if any survive, so
+a future seed re-capture can't silently reintroduce this same leak.
+
+### Review / hand-edit / rebuild loop
+
+Every build now always writes a second file next to the `.xtk`: the same
+JSON body, pretty-printed, at `<out>.json` (e.g. `addon/Force Acid
+Control.xtk.json`). That's the reviewable form — diff it, hand-edit it
+after a real-hardware finding, then repack it straight back into `.xtk`
+framing without touching the generation script:
+
+```bash
+python3 scripts/build_xtk.py --pack "addon/Force Acid Control.xtk.json"
+```
 
 **Only Seq A + Seq B's 8 core knobs each are covered (16 total = one full
 Q-Link bank).** Global (scale/root/blend/swing/...) and the newer Advanced

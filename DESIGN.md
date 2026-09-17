@@ -185,6 +185,16 @@ Force IP: wifi screen, Shift + the info button. SSH user/pass `root` / `force`.
       **not yet visually confirmed on a real screen** — see
       `docs/capture-xtk.md` for exactly what's unconfirmed (`momentary`/
       `paramType` semantics) and what to check.
+- [x] fix leftover donor-addon data in the `.xtk` seed, found by on-device
+      inspection: `customisable.mapping` (127 entries) carried a different
+      addon's own generator-parameter names, and `midiInputRoute`/
+      `midiOutputRoute` pointed at `"Mockba Harpie 4T"` instead of
+      force-acid's own `"Mockba Acid"` ALSA client. Both scrubbed in
+      `build_xtk.py` (`blank_mapping()`/`fix_midi_routes()`); an `audit()`
+      pass now refuses to build if any donor-addon string survives. Also
+      added: every build always emits a reviewable `<out>.json` alongside
+      the `.xtk`, and `--pack` repacks a (possibly hand-edited) JSON dump
+      straight back into `.xtk` framing. See `docs/capture-xtk.md`.
 - [x] decide A/B split-channel mode (flag) vs. keep merged-only — went with
       always-available independent `a_channel`/`b_channel` (not a flag),
       since Force's host has no reason to force one-channel-only the way

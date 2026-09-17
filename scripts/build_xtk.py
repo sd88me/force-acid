@@ -61,8 +61,31 @@ knob names show up, ranges look right, Generate/Mutate feel like triggers not
 sticky values. Report back either way so this comment (and the momentary/
 paramType question above) can be corrected.
 
+LEFTOVER-DATA FIX (found by on-device inspection): the seed's `customQLinks`
+was fully overwritten already, but `data.program.customisable.mapping` (a
+127-entry automation-parameter-name table) was NOT -- it's a leftover
+catalog of a *different* addon's own generator engine (its `name` fields
+read like "1 Mode 0-25 (1 Cluster 0-59)", "1 Rand Rotate (CC 86)" etc, and
+one of its own `customQLinks[].targetData[].track` fields literally says
+"RiffMaker 4T" -- so this seed's mixer/pad-bank chrome came from Harpie4T,
+but this particular mapping table reflects whatever RiffMaker-generator
+track that Harpie4T instance happened to be controlling when it was
+captured). None of that belongs to force-acid and would leak into the
+Force's own automation-parameter picker for this track. `blank_mapping()`
+below zeroes every entry to the same shape real "unused" slots already use
+elsewhere in the same file (`{"automationIndex": 2147483647, "value": 0.0,
+"name": ""}` -- 30 of the original 127 entries already look exactly like
+this, so it's not a guess, it's the file's own "empty" convention), keeping
+`parameterIndex` untouched since that's positional/structural, not a label.
+
 Usage:
-    python3 scripts/build_xtk.py [--track-name "ACID CTRL"] [--out "addon/Force Acid Control.xtk"]
+    python3 scripts/build_xtk.py                          # seed + our KNOBS -> .xtk + .json
+    python3 scripts/build_xtk.py --track-name "MY TRACK"
+    python3 scripts/build_xtk.py --pack path/to/edited.json --out "addon/Force Acid Control.xtk"
+        # skip seed/KNOBS generation entirely -- just re-pack an already-assembled
+        # (and possibly hand-edited) JSON dump back into .xtk framing. Use this to
+        # review/tweak a previous build's .json output on real hardware findings
+        # and rebuild without touching this script.
 """
 import argparse
 import copy
@@ -74,6 +97,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SEED_PATH = HERE / "xtk-seed.json"
 HEADER = "ACVS\n3.3.0.0\nSerialisableTrackData\njson\nLinux\n"
+
+# Sentinel automationIndex the file's own schema already uses for "this slot
+# has no automation target" -- see LEFTOVER-DATA FIX above.
+UNUSED_AUTOMATION_INDEX = 2147483647
 
 # (key, label, cc, momentary)
 KNOBS = [
@@ -99,6 +126,12 @@ assert len(KNOBS) == 16, "one Q-Link bank is 16 knobs -- trim/extend deliberatel
 FULL_RANGE = {"min": 0.0, "max": 1.0, "stride": 0.0, "deadspot": 0.0, "skew": 1.0}
 INPUT_RANGE = {"min": 0.0, "max": 1.0, "stride": 0.0, "deadspot": 2.0, "skew": 1.0}
 
+# Strings that must never survive into the built .xtk -- anything from a
+# donor addon's own captured state that isn't ours. Checked by audit() after
+# every build so a future seed swap/re-capture can't silently reintroduce
+# this same leak.
+FORBIDDEN_SUBSTRINGS = ["RiffMaker", "Harpie"]
+
 
 def make_qlink(label, cc, track_name, momentary):
     return {
@@ -120,52 +153,167 @@ def make_qlink(label, cc, track_name, momentary):
     }
 
 
+def fix_midi_routes(doc, control_channel):
+    """Point data.midiInputRoute/midiOutputRoute at force-acid's own ALSA
+    client instead of the leftover "Mockba Harpie 4T" one -- see
+    LEFTOVER-DATA FIX. host_shim.cpp's default ALSA client name is
+    "Mockba Acid" (--client, see its usage text); Harpie4T's own captured
+    naming convention was "Mockba <ClientName>" for the input route and
+    "Mockba <ClientName> - CH:<1-based channel>" for the output route, so
+    the same pattern is reused here.
+
+    UNCONFIRMED, same caveat as the rest of this file: `deviceId` (e.g.
+    "137-0") looks like a cached ALSA client:port number from whatever this
+    was captured on -- those are assigned dynamically per-boot, so
+    Harpie4T's real numbers are certainly stale/wrong for a different
+    device/session too. Reset to "0-0" here as a clearly-unresolved
+    placeholder on the assumption the Force re-resolves routes by
+    deviceName when the cached id doesn't match anything live -- not
+    verified against real firmware behavior. If Q-Link changes don't
+    actually reach force-acid after loading this template, re-pointing the
+    track's MIDI I/O by hand in the Force UI once should also fix the
+    deviceId going forward; report back either way.
+    """
+    ch0 = control_channel - 1  # host_shim.cpp/force-acid.conf are 1-based; this file's own
+                                # outputChannel:12 paired with deviceName "...CH:13" confirms
+                                # the numeric field is 0-based, the display suffix 1-based.
+    client = "Mockba Acid"
+
+    in_route = doc["data"]["midiInputRoute"]
+    in_route["inputPort"]["deviceName"] = client
+    in_route["inputPort"]["deviceId"] = "0-0"
+    in_route["inputChannel"] = ch0
+
+    out_route = doc["data"]["midiOutputRoute"]
+    out_route["outputPort"]["deviceName"] = f"{client} - CH:{control_channel}"
+    out_route["outputPort"]["deviceId"] = "0-0"
+    out_route["outputChannel"] = ch0
+
+
+def blank_mapping(doc):
+    """Zero out data.program.customisable.mapping -- see LEFTOVER-DATA FIX.
+
+    Leaves parameterIndex (positional/structural) alone; resets
+    automationIndex/value/name to the file's own "unused slot" shape so no
+    donor-addon parameter names survive.
+    """
+    mapping = doc["data"]["program"]["customisable"]["mapping"]
+    for entry in mapping:
+        entry["automationIndex"] = UNUSED_AUTOMATION_INDEX
+        entry["value"] = 0.0
+        entry["name"] = ""
+
+
+def rename(obj, template_name):
+    """Self-referential name fields -- everywhere the seed said "Harpie 4T
+    Control" (its own template name), swap in ours. Leave targetData's
+    "track" fields alone -- those are the *destination* MIDI track name and
+    get fully replaced by make_qlink() already."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "name" and isinstance(v, str) and v.startswith("Harpie 4T Control"):
+                obj[k] = v.replace("Harpie 4T Control", template_name)
+            else:
+                rename(v, template_name)
+    elif isinstance(obj, list):
+        for item in obj:
+            rename(item, template_name)
+
+
+def audit(doc):
+    """Scan the final doc for leftover donor-addon strings. Returns a list of
+    JSON-path strings where something forbidden was found (empty = clean)."""
+    hits = []
+
+    def walk(o, path):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                walk(v, f"{path}/{k}")
+        elif isinstance(o, list):
+            for i, item in enumerate(o):
+                walk(item, f"{path}[{i}]")
+        elif isinstance(o, str):
+            for bad in FORBIDDEN_SUBSTRINGS:
+                if bad in o:
+                    hits.append(f"{path} = {o!r}")
+    walk(doc, "")
+    return hits
+
+
+def build_doc(track_name, template_name, control_channel):
+    if not SEED_PATH.exists():
+        sys.exit(f"seed file missing: {SEED_PATH}")
+    doc = json.loads(SEED_PATH.read_text())
+
+    program = doc["data"]["program"]
+    program["customQLinks"] = [
+        make_qlink(label, cc, track_name, momentary)
+        for (_key, label, cc, momentary) in KNOBS
+    ]
+    blank_mapping(doc)
+    fix_midi_routes(doc, control_channel)
+    rename(doc, template_name)
+    return doc
+
+
+def write_xtk(doc, out_path):
+    body = HEADER + json.dumps(doc, indent=4)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.GzipFile(out_path, "wb", mtime=0) as f:
+        f.write(body.encode("utf-8"))
+
+
+def write_json(doc, out_path):
+    """Always emitted alongside the .xtk -- the human-reviewable form. Edit
+    this file and re-run with --pack to rebuild without touching this
+    script's generation logic."""
+    out_path.write_text(json.dumps(doc, indent=2) + "\n")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--track-name", default="ACID CTRL",
                      help='must match the MIDI track name exactly once loaded on the Force (default: "ACID CTRL", matching addon/README.txt)')
     ap.add_argument("--out", default=str(HERE.parent / "addon" / "Force Acid Control.xtk"))
     ap.add_argument("--template-name", default="Force Acid Control")
+    ap.add_argument("--control-channel", type=int, default=1,
+                     help="1-16, must match force-acid's control_channel (default 1) -- "
+                          "used for this track's MIDI I/O route, not the Q-Link CC targets")
+    ap.add_argument("--pack", metavar="JSON_PATH",
+                     help="skip seed/KNOBS generation -- wrap this already-assembled "
+                          "JSON file (e.g. a previous build's --out .json, hand-edited) "
+                          "into .xtk framing instead")
     args = ap.parse_args()
 
-    if not SEED_PATH.exists():
-        sys.exit(f"seed file missing: {SEED_PATH}")
-
-    doc = json.loads(SEED_PATH.read_text())
-
-    program = doc["data"]["program"]
-    program["customQLinks"] = [
-        make_qlink(label, cc, args.track_name, momentary)
-        for (_key, label, cc, momentary) in KNOBS
-    ]
-
-    # Self-referential name fields -- everywhere the seed said "Harpie 4T
-    # Control" (its own template name), swap in ours. Leave targetData's
-    # "track" fields alone -- those were just set above and mean something
-    # different (the *destination* MIDI track name).
-    def rename(obj):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if k == "name" and isinstance(v, str) and v.startswith("Harpie 4T Control"):
-                    obj[k] = v.replace("Harpie 4T Control", args.template_name)
-                else:
-                    rename(v)
-        elif isinstance(obj, list):
-            for item in obj:
-                rename(item)
-
-    rename(doc)
-
-    body = HEADER + json.dumps(doc, indent=4)
     out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.GzipFile(out_path, "wb", mtime=0) as f:
-        f.write(body.encode("utf-8"))
+    json_path = out_path.with_suffix(out_path.suffix + ".json")
+
+    if args.pack:
+        pack_path = Path(args.pack)
+        if not pack_path.exists():
+            sys.exit(f"--pack file missing: {pack_path}")
+        doc = json.loads(pack_path.read_text())
+        print(f"packing {pack_path} (skipping seed/KNOBS generation)")
+    else:
+        doc = build_doc(args.track_name, args.template_name, args.control_channel)
+
+    hits = audit(doc)
+    if hits:
+        print("WARNING: leftover donor-addon strings survived into the build:", file=sys.stderr)
+        for h in hits:
+            print(f"  {h}", file=sys.stderr)
+        sys.exit(1)
+
+    write_xtk(doc, out_path)
+    write_json(doc, json_path)
 
     print(f"wrote {out_path} ({out_path.stat().st_size} bytes)")
-    print(f"Q-Link bank: {len(program['customQLinks'])} knobs, track name '{args.track_name}'")
-    print("Load it on the Force onto a MIDI track literally named "
-          f"'{args.track_name}' -- the CC targets are bound by track NAME, not by track index.")
+    print(f"wrote {json_path} (reviewable JSON -- edit + --pack it to rebuild)")
+    if not args.pack:
+        program = doc["data"]["program"]
+        print(f"Q-Link bank: {len(program['customQLinks'])} knobs, track name '{args.track_name}'")
+        print("Load it on the Force onto a MIDI track literally named "
+              f"'{args.track_name}' -- the CC targets are bound by track NAME, not by track index.")
 
 
 if __name__ == "__main__":
