@@ -130,9 +130,38 @@ def _feedback_listener():
     Acid:Out, watches for the engine's own feedback CCs (channel 16, same CC
     numbers as input -- see host_shim.cpp's send_all_feedback/apply_cc) and
     updates _state. Runs for the life of the process; reconnects whenever
-    the port disappears (engine not running yet / restarted)."""
+    the port disappears (engine not running yet / restarted).
+
+    A restarted engine gets a brand-new ALSA client each time (a different
+    numeric suffix on the same name, e.g. "Acid:Out (Mockba) 141:0" vs
+    "...145:0"), and reading from a port whose *source client* has gone away
+    doesn't raise -- iter_pending() just silently returns nothing forever.
+    So unlike _ensure_out() (which re-checks its port's name is still live
+    on every call), this loop used to only reconnect on an actual exception
+    and could get stuck listening to a dead port indefinitely after any
+    engine restart, silently freezing every value in _state (this is what
+    made the web panel's CV Mode toggle -- and every other control -- look
+    like it "doesn't stay" set: /state kept echoing whatever was true before
+    the last engine restart). NAME_CHECK_PERIOD below re-verifies the
+    connection is still the live port, the same way _ensure_out() does."""
     port = None
+    last_name_check = 0.0
+    NAME_CHECK_PERIOD = 1.0
     while True:
+        now = time.time()
+        if port is not None and now - last_name_check >= NAME_CHECK_PERIOD:
+            last_name_check = now
+            try:
+                names = mido.get_input_names()
+            except Exception:
+                names = []
+            if port.name not in names:
+                try:
+                    port.close()
+                except Exception:
+                    pass
+                port = None
+
         if port is None:
             try:
                 names = mido.get_input_names()
@@ -142,6 +171,7 @@ def _feedback_listener():
             if target:
                 try:
                     port = mido.open_input(target, api="LINUX_ALSA")
+                    last_name_check = time.time()
                 except Exception:
                     port = None
             if port is None:
