@@ -55,7 +55,8 @@
         { "key": "root",       "label": "ROOT",       "cc": 71, "kind": "enum", "options": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] },
         { "key": "reset_bars", "label": "RESET",      "cc": 76, "kind": "enum", "options": ["1 BAR", "2 BARS", "4 BARS", "8 BARS", "OFF"] },
         { "key": "swing",      "label": "SWING",      "cc": 77, "kind": "float", "lo": 50, "hi": 75, "fmt": "int" },
-        { "key": "jitter",     "label": "JITTER",     "cc": 78, "kind": "float", "lo": 0,  "hi": 1,   "fmt": "pct" }
+        { "key": "jitter",     "label": "JITTER",     "cc": 78, "kind": "float", "lo": 0,  "hi": 1,   "fmt": "pct" },
+        { "key": "cv_mode",    "label": "CV MODE",    "cc": 79, "kind": "toggle" }
       ]
     }
   ]

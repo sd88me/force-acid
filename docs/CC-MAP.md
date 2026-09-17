@@ -8,7 +8,7 @@ output channel" below) — this replaces the old single `output_channel`/
 
 CC numbers are chosen to sit clear of the ranges MockbaMod's MidiLoop docs warn
 about (0, 1, 32, 64, 121+). Four contiguous blocks: Seq A (20-31), Seq B
-(40-51), and Global (70-78, split into the original 8 knobs plus an Advanced
+(40-51), and Global (70-79, split into the original 8 knobs plus an Advanced
 block moved out to make room for each sequencer's own Advanced controls,
 including each seq's own Auto Regen at 31/51).
 
@@ -47,6 +47,7 @@ including each seq's own Auto Regen at 31/51).
 | | 76 | `reset_bars` | 0–127 → 0–4 | 1 / 2 / 4 / 8 bars, Off (default) |
 | | 77 | `swing` | 0–127 → 50–75 | 50 straight, 66 triplet, 75 max |
 | | 78 | `jitter` | 0–127 → 0.00–1.00 | per-tick chance of perturbing *which* step plays, never *when* |
+| | 79 | `cv_mode` | 0–127 → 0–1 | **FORCE-ONLY**; Off / On — see "CV Mode" below |
 
 ## Per-sequence output channel (FORCE-ONLY)
 
@@ -76,6 +77,37 @@ so the useful CC values are:
 - **reset_bars** (5): 0, 32, 64, 95, 127 (127 = Off, the default)
 - **a_dir / b_dir** (3): 0, 64, 127 — Fwd, Rev, Pendulum
 - **a_auto_gen / b_auto_gen** (7): 0, 21, 42, 64, 85, 106, 127 — Off, 1, 2, 4, 8, 16, 32 bars
+- **cv_mode** (2): 0, 127 — Off, On
+
+## CV Mode (FORCE-ONLY)
+
+For routing the two sequencers to a Force **CV track** driving external
+CV/Gate hardware (e.g. a Behringer TD-3-MO's CV inputs) instead of a MIDI
+synth. Force's own CV-track CC convention expects specific standard CCs on
+specific rows (pitch from the note itself, Gate from note-on/off, Velocity
+and Mod Wheel as the assignable continuous rows) — `cv_mode` retargets both
+sequencers' output to fit that, without changing anything else:
+
+- **Accent → Velocity.** Every note already carried its accent as a
+  velocity difference (72 non-accented / 118 accented, scaled by Blend) for
+  a velocity-sensitive synth's own dynamics. In CV Mode the swing widens to
+  the full range instead — **1 for a normal note, 127 for an accented
+  one** — so a CV row assigned to Velocity reads a clean near-0V/full-scale
+  step rather than a subtle synth-dynamics nudge, and **Blend's scaling is
+  bypassed entirely** for this: Blend crossfades two sequencers sharing one
+  audio destination, which doesn't apply when each sequencer is instead
+  routed to its own separate CV/Gate output — scaling the accent-CV level
+  by an unrelated mix control would silently report "full accent" as
+  something less than full-scale at any Blend setting other than that
+  sequencer's own extreme.
+- **Slide → Mod Wheel (CC1), not Portamento (CC65).** Same on/off (127/0)
+  semantics as before, just a different destination CC, matching what a
+  Force CV track's own row-assignment menu expects for this kind of
+  continuous/switched control rather than a synth-specific portamento
+  switch.
+- Everything else (note pitch, gate/note-on-off timing, per-sequencer
+  channel) is unaffected — set `a_channel`/`b_channel` to route each
+  sequencer to its own CV track as usual.
 
 ## Note input
 

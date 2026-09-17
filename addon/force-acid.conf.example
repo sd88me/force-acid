@@ -49,3 +49,4 @@ forward_unmapped = 1      # 1 = pass CCs we don't use through to the synth, 0 = 
 # reset_bars = 76
 # swing      = 77
 # jitter     = 78
+# cv_mode    = 79

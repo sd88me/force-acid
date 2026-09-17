@@ -55,16 +55,23 @@ table with enum landing points in docs/CC-MAP.md)
    26  Length A (2-32)   46  Length B (2-32)   76  Reset Both (1/2/4/8/Off)
    27  Gate A            47  Gate B            77  Swing      (50..75)
    28  Channel A (1-16)  48  Channel B (1-16)  78  Jitter     (0..100%)
-   29  Offset A (0-31)   49  Offset B (0-31)
+   29  Offset A (0-31)   49  Offset B (0-31)   79  CV Mode    (Off/On)
    30  Dir A (Fwd/Rev/Pendulum)  50  Dir B (Fwd/Rev/Pendulum)
    31  Auto Regen A (Off/1/2/4/8/16/32 bars)
                         51  Auto Regen B (Off/1/2/4/8/16/32 bars)
 
   Generate / Mutate trigger on CC value >= 64 (treat as a momentary button).
   All other CCs are the full 0-127 range scaled to the parameter.
-  Channel A/B, Offset A/B, Dir A/B and Auto Regen A/B have no Move equivalent
-  -- see DESIGN.md. Auto Regen A/B replaces the old single shared Auto Gen
-  with an independent per-sequencer bar counter.
+  Channel A/B, Offset A/B, Dir A/B, Auto Regen A/B and CV Mode have no Move
+  equivalent -- see DESIGN.md. Auto Regen A/B replaces the old single shared
+  Auto Gen with an independent per-sequencer bar counter.
+
+  CV Mode retargets both sequencers for a Force CV track driving external
+  CV/Gate hardware (e.g. a Behringer TD-3-MO) instead of a MIDI synth:
+  accent becomes a velocity-only signal (1 normal / 127 accented, NOT scaled
+  by Blend) for a Velocity CV row, and Slide moves from CC65 (Portamento) to
+  CC1 (Mod Wheel) for a Mod Wheel CV row. See docs/CC-MAP.md's "CV Mode"
+  section.
 
 OPTIONS (in run_force-acid.sh or on the command line)
    -v                     log every parameter change to stderr

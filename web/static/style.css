@@ -219,6 +219,16 @@ html, body {
   box-shadow: 0 1px 0 #5c1409, inset 0 2px 4px rgba(0,0,0,.6);
 }
 
+/* A toggle (CV Mode) is a persistent state, not a momentary press -- lit
+ * green while on, same red pad while off, so it reads at a glance rather
+ * than only in the instant it's pressed. */
+.btn-toggle { background: linear-gradient(180deg, #333, #1a1a1a); box-shadow: 0 3px 0 var(--panel-edge), 0 5px 6px rgba(0,0,0,.5), inset 0 0 0 1px #000; }
+.btn-toggle.active {
+  transform: none;
+  background: linear-gradient(180deg, var(--green), #1f7a4d);
+  box-shadow: 0 3px 0 #0d3d26, 0 0 10px rgba(53,208,127,.6), inset 0 0 0 1px #000;
+}
+
 /* -------------------------------------------------------------- footer */
 
 .footer {

@@ -174,6 +174,11 @@ typedef struct {
     int scale;            /* index into SCALES */
     int blend;             /* -63..64, bipolar velocity crossfade A<->B */
     int reset_bars_idx;   /* 0..3 -> {1,2,4,8} bars, 4 = Off */
+    /* FORCE-ONLY: CV Mode -- retargets both sequencers' output for a Force CV
+     * track feeding external CV/Gate/Accent/Slide hardware (e.g. a Behringer
+     * TD-3-MO) instead of a MIDI synth. No Move equivalent. See
+     * emit_step_for_seq()'s own comment for exactly what changes. */
+    int cv_mode;
     int swing_pct;         /* 50-75, MPC-style 16th swing; 50 = straight.
                            * Whole percent, but the chain_param below is
                            * declared "float" (like Length A/B) so the knob
@@ -559,7 +564,27 @@ static int kill_all_notes(acid_inst_t *t, uint8_t out_msgs[][3], int out_lens[],
  * velocity is scaled by it, so Blend acts as an overall mix level per
  * generator rather than overriding accent dynamics. vel_scale == 0 mutes
  * the sequencer outright for this step (true "only" semantics at the
- * Blend extremes, not just quiet). */
+ * Blend extremes, not just quiet).
+ *
+ * FORCE-ONLY: CV Mode (t->cv_mode) retargets both of the above for a Force
+ * CV track feeding external CV/Gate/Accent/Slide hardware (e.g. a Behringer
+ * TD-3-MO) instead of a MIDI synth:
+ *   - accent is carried by velocity ALONE, at the widest possible swing (1
+ *     for a normal note, 127 for an accented one) so a Force CV row assigned
+ *     to Velocity reads a clean, near-full-scale step between "no accent"
+ *     and "full accent" -- the 72/118 pair below is tuned for how a
+ *     velocity-sensitive synth's own dynamics respond, not for a linear CV
+ *     line, and is far too narrow a swing for that use.
+ *   - Blend's vel_scale is deliberately NOT applied to the CV-mode velocity:
+ *     Blend crossfades two sequencers sharing ONE audio destination, but CV
+ *     Mode is for routing each sequencer to its OWN separate CV/Gate
+ *     hardware, so scaling the accent-CV level by an unrelated mix control
+ *     would corrupt the reading (a mid-Blend setting would report a full
+ *     accent as something less than full-scale).
+ *   - slide is sent as CC1 (Mod Wheel) instead of CC65 (Portamento), since
+ *     Mod Wheel is the CC a Force CV track's own CV-row assignment menu
+ *     expects for a non-pitch/velocity/gate row (see docs/CC-MAP.md). The
+ *     on/off semantics (127 on, 0 off) are otherwise unchanged. */
 static int emit_step_for_seq(acid_inst_t *t, int seq_idx, int prev_pos, int vel_scale,
                               uint8_t out_msgs[][3], int out_lens[], int max_out) {
     acid_seq_t *s = &t->seq[seq_idx];
@@ -575,10 +600,17 @@ static int emit_step_for_seq(acid_inst_t *t, int seq_idx, int prev_pos, int vel_
 
     int note = note_for_step(s, t->scale, t->root, t->live_transpose, pidx);
     int is_accent = (kind == STEP_ACCENT);
-    int base_vel = is_accent ? 118 : 72;
-    int vel = (base_vel * vel_scale) / 127;
-    if (vel < 1) vel = 1;
-    if (vel > 127) vel = 127;
+    int vel;
+    if (t->cv_mode) {
+        vel = is_accent ? 127 : 1;
+    } else {
+        int base_vel = is_accent ? 118 : 72;
+        vel = (base_vel * vel_scale) / 127;
+        if (vel < 1) vel = 1;
+        if (vel > 127) vel = 127;
+    }
+
+    uint8_t slide_cc = t->cv_mode ? 1 : 65;   /* FORCE-ONLY: Mod Wheel in CV Mode */
 
     int was_slide = (prev_pos >= 0 && s->steps[play_idx(s, prev_pos)] == STEP_SLIDE);
 
@@ -586,7 +618,7 @@ static int emit_step_for_seq(acid_inst_t *t, int seq_idx, int prev_pos, int vel_
      * (a_channel/b_channel) instead of upstream's fixed OUT_CH. */
     if (was_slide) {
         if (!s->portamento_on && count < max_out) {
-            out_msgs[count][0] = 0xB0 | (uint8_t)s->out_ch; out_msgs[count][1] = 65; out_msgs[count][2] = 127;
+            out_msgs[count][0] = 0xB0 | (uint8_t)s->out_ch; out_msgs[count][1] = slide_cc; out_msgs[count][2] = 127;
             out_lens[count] = 3; count++;
             s->portamento_on = 1;
         }
@@ -600,7 +632,7 @@ static int emit_step_for_seq(acid_inst_t *t, int seq_idx, int prev_pos, int vel_
         }
     } else {
         if (s->portamento_on && count < max_out) {
-            out_msgs[count][0] = 0xB0 | (uint8_t)s->out_ch; out_msgs[count][1] = 65; out_msgs[count][2] = 0;
+            out_msgs[count][0] = 0xB0 | (uint8_t)s->out_ch; out_msgs[count][1] = slide_cc; out_msgs[count][2] = 0;
             out_lens[count] = 3; count++;
             s->portamento_on = 0;
         }
@@ -1053,6 +1085,11 @@ static void acid_set_param(void *instance, const char *key, const char *val) {
         if (v < 0.0f) v = 0.0f;
         if (v > 1.0f) v = 1.0f;
         t->jitter = v;
+    } else if (strcmp(key, "cv_mode") == 0) {
+        /* FORCE-ONLY: see emit_step_for_seq()'s own comment for what this
+         * changes (accent-via-velocity swing, slide CC target). */
+        int v = parse_int(val, 0);
+        t->cv_mode = v ? 1 : 0;
     }
 }
 
@@ -1094,6 +1131,7 @@ static int acid_get_param(void *instance, const char *key, char *buf, int buf_le
     else if (strcmp(key, "reset_bars") == 0) n = snprintf(buf, buf_len, "%d", t->reset_bars_idx);
     else if (strcmp(key, "swing") == 0) n = snprintf(buf, buf_len, "%d", t->swing_pct);
     else if (strcmp(key, "jitter") == 0) n = snprintf(buf, buf_len, "%.3f", t->jitter);
+    else if (strcmp(key, "cv_mode") == 0) n = snprintf(buf, buf_len, "%d", t->cv_mode);  /* FORCE-ONLY */
     else if (strcmp(key, "chain_params") == 0) {
         /* Not actually consulted for midi_fx loading -- chain_midi.c reads
          * chain_params straight out of module.json on disk (parse_chain_params),
@@ -1139,9 +1177,9 @@ static int acid_get_param(void *instance, const char *key, char *buf, int buf_le
             "{\"key\":\"a_dir\",\"name\":\"Direction A\",\"type\":\"enum\",\"options\":[\"Fwd\",\"Rev\",\"Pendulum\"],\"default\":0},"
             "{\"key\":\"b_dir\",\"name\":\"Direction B\",\"type\":\"enum\",\"options\":[\"Fwd\",\"Rev\",\"Pendulum\"],\"default\":0},"
             "{\"key\":\"jitter\",\"name\":\"Jitter\",\"type\":\"float\",\"min\":0.0,\"max\":1.0,\"step\":0.01,\"default\":0.0,\"unit\":\"%\"}"
-            /* a_auto_gen/b_auto_gen deliberately omitted -- FORCE-ONLY,
-             * same convention as a_channel/b_channel above (no Move
-             * equivalent; upstream had one shared Auto Gen, not two). */
+            /* a_auto_gen/b_auto_gen/cv_mode deliberately omitted -- all
+             * FORCE-ONLY, same convention as a_channel/b_channel above (no
+             * Move equivalent). */
             "]";
         n = snprintf(buf, buf_len, "%s", params);
     }

@@ -213,6 +213,15 @@ Force IP: wifi screen, Shift + the info button. SSH user/pass `root` / `force`.
       `auto_gen_step_count` moved from the shared instance struct onto each
       `acid_seq_t`. Hardware-verified: A and B hold independent Auto Regen
       values simultaneously and echo back correctly via `/state`.
+- [x] CV Mode (`cv_mode`, CC 79, reusing the retired shared Auto Gen slot) --
+      `FORCE-ONLY`, for routing both sequencers to a Force CV track driving
+      external CV/Gate hardware (e.g. a Behringer TD-3-MO) instead of a MIDI
+      synth. In `emit_step_for_seq()`: accent becomes velocity-only at the
+      widest swing (1 normal / 127 accented) for a Velocity CV row, and is
+      NOT scaled by Blend (Blend crossfades two sequencers sharing one
+      audio destination, which doesn't apply when each is routed to its own
+      separate CV hardware); Slide moves from CC65 (Portamento) to CC1 (Mod
+      Wheel) for a Mod Wheel CV row. See docs/CC-MAP.md's "CV Mode" section.
 - [ ] control-surface feedback (CC out on ch 16)
 - [ ] licensing note — inherits `schwung-acid`'s (tb3po = GPL-3.0); keep the
       `VEL_PYRAMID` attribution question from the upstream README in view

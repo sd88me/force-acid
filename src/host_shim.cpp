@@ -85,7 +85,7 @@ static const ParamSpec PARAMS[] = {
     /* Global block moved to 70-79 (was 50-57) to make room for the two
      * per-seq Advanced blocks above without colliding -- see docs/CC-MAP.md.
      * cc 79 (old shared auto_gen) is retired -- replaced by a_auto_gen/
-     * b_auto_gen above. */
+     * b_auto_gen above, and reused below for cv_mode. */
     { "scale",        'e',   0,     11,    70 },   /* 12 options (v1.1 curated set) */
     { "root",         'e',   0,     11,    71 },   /* 12 options */
     { "b_tune",       'i',  -24,    24,    72 },
@@ -95,6 +95,7 @@ static const ParamSpec PARAMS[] = {
     { "reset_bars",   'e',   0,     4,     76 },   /* 5 options  */
     { "swing",        'f',   50,    75,    77 },
     { "jitter",       'f',   0.0,   1.0,   78 },
+    { "cv_mode",      'e',   0,     1,     79 },   /* FORCE-ONLY: 2 options, Off/On -- see acid_core.c's emit_step_for_seq() */
 };
 static const int N_PARAMS = (int)(sizeof(PARAMS) / sizeof(PARAMS[0]));
 

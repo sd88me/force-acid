@@ -31,8 +31,18 @@ PARAMS_PATH = WEB_DIR / "params.json"
 ENGINE_BIN = ADDON_DIR / "force-acid"
 ENGINE_CONF = ADDON_DIR / "force-acid.conf"
 
-IN_PORT_MATCH = ("Mockba Acid", "In")
-OUT_PORT_MATCH = ("Mockba Acid", "Out")
+
+# The client name passed to RtMidi ("Mockba Acid", see host_shim.cpp) is not
+# what actually shows up in ALSA/mido's port list on this device -- observed
+# live (mido.get_output_names()/get_input_names()) as "Acid:In (Mockba) N:0"
+# / "Acid:Out (Mockba) N:0": MockbaMod (or this RtMidi/ALSA combination)
+# reorders it into "<short name>:<In/Out> (Mockba)", same pattern seen for
+# every other host_shim-style addon (DX7, JV880, Maze Seq all show
+# "<Name>:In (Mockba)" too) -- not something specific to force-acid. The
+# original ("Mockba Acid", "In") tuple never matches that string, which
+# silently made /cc and /status always report the engine as not running.
+IN_PORT_MATCH = ("Acid:In", "(Mockba)")
+OUT_PORT_MATCH = ("Acid:Out", "(Mockba)")
 
 PARAMS = json.loads(PARAMS_PATH.read_text())
 # "spacer" entries are layout-only (empty grid cell to force a row break in

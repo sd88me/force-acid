@@ -157,6 +157,40 @@
     return wrap;
   }
 
+  function makeToggle(spec) {
+    // A persistent on/off button (unlike makeMomentary's press-and-release
+    // pad) -- click flips state, sends 127 (on) or 0 (off) once, and stays
+    // lit/unlit reflecting that state. Syncs from server like a knob, so an
+    // external change (another controller, engine restart) is reflected.
+    const wrap = document.createElement("div");
+    wrap.className = "control";
+
+    const pad = document.createElement("div");
+    pad.className = "btn-pad btn-toggle";
+    pad.textContent = spec.label;
+
+    let on = false;
+    function setOn(newOn, send) {
+      on = newOn;
+      pad.classList.toggle("active", on);
+      if (send) sendCcImmediate(spec.key, on ? 127 : 0);
+    }
+
+    pad.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      markLocal(spec.key);
+      setOn(!on, true);
+    });
+
+    const spacer = document.createElement("div");
+    spacer.className = "control-value";
+    spacer.innerHTML = "&nbsp;";
+
+    wrap.append(pad, spacer);
+    controls[spec.key] = { syncFromServer: (wire) => setOn(wire >= 64, false) };
+    return wrap;
+  }
+
   function makeEnum(spec) {
     const wrap = document.createElement("div");
     wrap.className = "control control-enum";
@@ -206,6 +240,7 @@
   function buildControl(spec) {
     if (spec.kind === "spacer") return makeSpacer();
     if (spec.kind === "momentary") return makeMomentary(spec);
+    if (spec.kind === "toggle") return makeToggle(spec);
     if (spec.kind === "enum") return makeEnum(spec);
     return makeKnob(spec);
   }
