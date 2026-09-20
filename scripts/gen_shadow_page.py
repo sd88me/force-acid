@@ -84,7 +84,7 @@ def seq_frame(p, letter):
     emit(f'button cx={x + 330} cy=170 label="MUTATE" key={p}_mutate')
     stepper(x + 200, 265, "REGEN", f"{p}_auto_gen", w=300)
     emit(f'enum_h cx={x + w - 190} cy=265 label="DIR" key={p}_dir options="FWD,REV,PENDUL" active=0 sw=80')
-    knobs = [(f"ALGO {letter}", f"{p}_algo", 1, 16, 1),
+    knobs = [("ALGORHYTHM", f"{p}_algo", 1, 16, 1),
              ("DENSITY", f"{p}_density", 0, 100, 50), ("ACCENT", f"{p}_accent", 0, 100, 30),
              ("SLIDE", f"{p}_slide", 0, 100, 20), ("GATE", f"{p}_gate", 5, 100, 50),
              ("OCTAVES", f"{p}_octaves", 1, 3, 2), ("LENGTH", f"{p}_length", 2, 32, 16),

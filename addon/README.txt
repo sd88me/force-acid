@@ -20,14 +20,15 @@ SETUP ON THE FORCE
   1. Preferences > MIDI:
        - "Mockba Acid In"  : enable Sync + Track (so clock + your CC track reach it)
        - "Mockba Acid Out" : enable Track
-  2. Make a MIDI track named exactly "ACID CTRL" (the included template
-     binds by track name), output = Mockba Acid In, channel 1.
-     Load "Force Acid Control.xtk" (included alongside this file) onto that
-     track to get 16 pre-named Q-Link knobs for Seq A + Seq B's core
-     controls (Generate/Mutate/Density/Accent/Slide/Octaves/Length/Gate x2)
-     -- or skip it and MIDI-learn any knob to any CC in the map below by
-     hand. NOTE: the template is reverse-engineered and not yet confirmed to
-     look right on a real screen -- see docs/capture-xtk.md. Global and the
+  2. Load "Force Acid Control.xtk" (included alongside this file) via
+     Force's track-template loader -- it creates a new MIDI track already
+     named "ACID CTRL" with output = Mockba Acid In, channel 1, and 16
+     pre-named Q-Link knobs for Seq A + Seq B's core controls (Generate/
+     Mutate/Density/Accent/Slide/Octaves/Length/Gate x2). No separate track
+     creation or renaming needed -- the Q-Link targets bind by track name,
+     and the loaded track is already named to match itself.
+     Or skip the template and MIDI-learn any knob to any CC in the map
+     below by hand on a track you name and route yourself. Global and the
      newer Advanced controls (Channel/Offset/Dir/Jitter/AutoGen) aren't in
      the template yet; reach them via MIDI-learn or the web control panel
      (web/, see web/README.md).
@@ -97,3 +98,12 @@ STATUS
   (ports register, transport clock drives stepping, notes/slide reach the
   right channel per sequencer, CC changes take effect live). No parameter
   feedback to the control surface yet, no preset save. See DESIGN.md.
+
+SHADOW-MODE TOUCHSCREEN PAGE (optional, needs force-shadow)
+-----------------------------------------------------------
+shadow_page.conf gives force-shadow an on-screen Acid page (tabs SEQ A / SEQ B /
+GLOBAL, styled after the web panel). It talks to the engine over a control
+socket (--ctrl-sock, default /tmp/acid_ctrl.sock, already in NSMODULE.json).
+Open it with SHIFT+SCENE-5 (rebind that MidiLoop combo to the ForceShadow
+page-5 script; see force-shadow/docs/adding-a-page.md). Regenerate the page with
+scripts/gen_shadow_page.py.
