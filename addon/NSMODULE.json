@@ -10,6 +10,14 @@
     {
       "NAME": "verbose param logging",
       "VALUE": "-v"
+    },
+    {
+      "NAME": "ctrl-sock flag",
+      "VALUE": "--ctrl-sock"
+    },
+    {
+      "NAME": "control socket path",
+      "VALUE": "/tmp/acid_ctrl.sock"
     }
   ]
 }

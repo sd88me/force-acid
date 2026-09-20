@@ -52,6 +52,7 @@ docker run --rm --platform "$PLATFORM" \
   cp addon/VERSION                 dist/ForceAcid/
   cp addon/README.txt              dist/ForceAcid/
   cp addon/help.json               dist/ForceAcid/
+  cp addon/shadow_page.conf        dist/ForceAcid/
   cp addon/force-acid.conf.example dist/ForceAcid/
   chmod 0755 dist/ForceAcid/force-acid dist/ForceAcid/manage.sh dist/ForceAcid/run_force-acid.sh
 

@@ -34,6 +34,10 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #include "rtmidi/RtMidi.h"
 
@@ -265,6 +269,138 @@ static void apply_cc(int param_idx, int value /* 0..127 */) {
 }
 
 /* ---------------------------------------------------------------------------
+ * Control socket (force-shadow's on-device touchscreen page) -- plain
+ * "SET <key> <value>" / "GET <key>" text lines over AF_UNIX, same protocol as
+ * maze_host/dx7_host. Values are integers (the page uses int_values=1): enums
+ * are option indices, and every float param whose range tops out at 1.0
+ * (density/accent/slide/gate/jitter) is exchanged in PERCENT so the page can
+ * round to an integer without losing resolution. Momentary keys (generate,
+ * mutate) take any value. Reuses the exact set_param path apply_cc() does, then
+ * re-broadcasts feedback so the web panel follows along.
+ * ------------------------------------------------------------------------- */
+static std::string g_ctrl_sock_path = "/tmp/acid_ctrl.sock";
+
+static const ParamSpec *find_param(const char *key) {
+    for (int i = 0; i < N_PARAMS; i++)
+        if (!std::strcmp(PARAMS[i].key, key)) return &PARAMS[i];
+    return nullptr;
+}
+static bool is_pct(const ParamSpec &p) { return p.kind == 'f' && p.hi <= 1.0; }
+
+/* Display names for the enum params the page shows as steppers (option lists
+ * too long for an enum row): GET <key>_txt -> name, GET <key>_n -> count.
+ * Must mirror the web/params.json option lists. */
+struct EnumNames { const char *key; int n; const char *const *names; };
+static const char *const N_SCALE[] = { "MINOR", "PHRYGIAN", "HARM MIN", "MIN PENT", "DORIAN", "MAJOR",
+                                       "PHRYG DOM", "LOCRIAN", "WHOLE TONE", "HUNG MIN", "MIN BLUES", "CHROMATIC" };
+static const char *const N_ROOT[]  = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+static const char *const N_REGEN[] = { "OFF", "1 BAR", "2 BARS", "4 BARS", "8 BARS", "16 BARS", "32 BARS" };
+static const EnumNames ENUM_NAMES[] = {
+    { "scale", 12, N_SCALE }, { "root", 12, N_ROOT },
+    { "a_auto_gen", 7, N_REGEN }, { "b_auto_gen", 7, N_REGEN },
+};
+
+static bool enum_names_get(const char *key, std::string &out) {
+    size_t kl = std::strlen(key);
+    for (const EnumNames &e : ENUM_NAMES) {
+        size_t el = std::strlen(e.key);
+        if (kl < el || std::strncmp(key, e.key, el)) continue;
+        const char *suffix = key + el;
+        if (!std::strcmp(suffix, "_n")) { out = std::to_string(e.n) + "\n"; return true; }
+        if (!std::strcmp(suffix, "_txt")) {
+            const ParamSpec *p = find_param(e.key);
+            char buf[32]; int n;
+            { std::lock_guard<std::mutex> lk(g_lock);
+              n = g_api->get_param(g_inst, p->key, buf, sizeof(buf) - 1); }
+            if (n <= 0) return false;
+            buf[n < 31 ? n : 31] = 0;
+            int idx = std::atoi(buf);
+            if (idx < 0) idx = 0;
+            if (idx >= e.n) idx = e.n - 1;
+            out = std::string(e.names[idx]) + "\n";
+            return true;
+        }
+    }
+    return false;
+}
+
+static void handle_ctrl_line(int fd, const std::string &line) {
+    char cmd[16] = {0}, key[64] = {0}, val[64] = {0};
+    if (std::sscanf(line.c_str(), "%15s", cmd) != 1) { send(fd, "ERR\n", 4, 0); return; }
+
+    if (!std::strcmp(cmd, "SET") && std::sscanf(line.c_str(), "%*s %63s %63s", key, val) == 2) {
+        const ParamSpec *p = find_param(key);
+        if (!p) { send(fd, "ERR\n", 4, 0); return; }
+        char buf[32];
+        if (p->kind == 'w')      std::snprintf(buf, sizeof(buf), "go");
+        else {
+            double v = std::atof(val);
+            if (is_pct(*p)) v /= 100.0;
+            if (v < p->lo) v = p->lo;
+            if (v > p->hi) v = p->hi;
+            if (p->kind == 'f')  std::snprintf(buf, sizeof(buf), "%.4f", v);
+            else                 std::snprintf(buf, sizeof(buf), "%ld", std::lround(v));
+        }
+        char readback[32]; int rn = -1;
+        { std::lock_guard<std::mutex> lk(g_lock);
+          g_api->set_param(g_inst, p->key, buf);
+          if (p->kind != 'w') rn = g_api->get_param(g_inst, p->key, readback, sizeof(readback)); }
+        if (g_verbose) std::fprintf(stderr, "[acid] ctrl set %-11s = %s\n", p->key, buf);
+        if (rn > 0) send_feedback_cc(p->default_cc, wire_from_readback(*p, readback));
+        send(fd, "OK\n", 3, 0);
+        return;
+    }
+    if (!std::strcmp(cmd, "GET") && std::sscanf(line.c_str(), "%*s %63s", key) == 1) {
+        std::string named;
+        if (enum_names_get(key, named)) { send(fd, named.c_str(), named.size(), 0); return; }
+        const ParamSpec *p = find_param(key);
+        if (!p || p->kind == 'w') { send(fd, "ERR\n", 4, 0); return; }
+        char buf[32]; int n;
+        { std::lock_guard<std::mutex> lk(g_lock);
+          n = g_api->get_param(g_inst, p->key, buf, sizeof(buf) - 1); }
+        if (n <= 0) { send(fd, "ERR\n", 4, 0); return; }
+        buf[n < 31 ? n : 31] = 0;
+        char out[48];
+        if (p->kind == 'e')       std::snprintf(out, sizeof(out), "%d\n", std::atoi(buf));
+        else if (is_pct(*p))      std::snprintf(out, sizeof(out), "%ld\n", std::lround(std::atof(buf) * 100.0));
+        else                      std::snprintf(out, sizeof(out), "%ld\n", std::lround(std::atof(buf)));
+        send(fd, out, std::strlen(out), 0);
+        return;
+    }
+    send(fd, "ERR\n", 4, 0);
+}
+
+static void ctrl_server_loop(int lfd) {
+    while (g_run.load()) {
+        int cfd = accept(lfd, nullptr, nullptr);
+        if (cfd < 0) continue;
+        char buf[256];
+        ssize_t n = recv(cfd, buf, sizeof(buf) - 1, 0);
+        if (n > 0) {
+            buf[n] = 0;
+            std::string line(buf);
+            size_t nl = line.find('\n');
+            if (nl != std::string::npos) line.resize(nl);
+            handle_ctrl_line(cfd, line);
+        }
+        close(cfd);
+    }
+}
+
+static int ctrl_socket_listen(const std::string &path) {
+    unlink(path.c_str());
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) { perror("socket"); return -1; }
+    struct sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) { perror("bind"); close(fd); return -1; }
+    chmod(path.c_str(), 0666);
+    if (listen(fd, 8) != 0) { perror("listen"); close(fd); return -1; }
+    return fd;
+}
+
+/* ---------------------------------------------------------------------------
  * Clock tracking
  * ------------------------------------------------------------------------- */
 static void note_clock_pulse(void) {
@@ -430,6 +566,7 @@ static void usage(const char *me) {
         "  --a-channel N         1-16, Seq A note output   (default: 1)\n"
         "  --b-channel N         1-16, Seq B note output   (default: 1)\n"
         "  --bpm N               starting BPM before clock (default: 120)\n"
+        "  --ctrl-sock PATH      control socket path       (default: /tmp/acid_ctrl.sock)\n"
         "  --config PATH         CC-map / channel overrides\n"
         "  --no-forward          drop unmapped CC instead of passing to the synth\n",
         me);
@@ -449,6 +586,7 @@ int main(int argc, char **argv) {
         else if (a == "--a-channel"       && i + 1 < argc) g_init_a_channel = argv[++i];
         else if (a == "--b-channel"       && i + 1 < argc) g_init_b_channel = argv[++i];
         else if (a == "--bpm"             && i + 1 < argc) bpm0     = (float)std::atof(argv[++i]);
+        else if (a == "--ctrl-sock"       && i + 1 < argc) g_ctrl_sock_path = argv[++i];
         else if (a == "--config"          && i + 1 < argc) cfg      = argv[++i];
         else { usage(argv[0]); return a == "-h" || a == "--help" ? 0 : 2; }
     }
@@ -502,10 +640,19 @@ int main(int argc, char **argv) {
 
     std::thread timer(timer_loop);
 
+    int ctrl_fd = ctrl_socket_listen(g_ctrl_sock_path);
+    std::thread ctrl;
+    if (ctrl_fd >= 0) ctrl = std::thread(ctrl_server_loop, ctrl_fd);
+
     while (g_run.load()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     /* --- shutdown: silence, then tear down --- */
     timer.join();
+    if (ctrl_fd >= 0) {           /* unblock accept(), then reap */
+        shutdown(ctrl_fd, SHUT_RDWR); close(ctrl_fd);
+        ctrl.detach();
+        unlink(g_ctrl_sock_path.c_str());
+    }
     {
         std::lock_guard<std::mutex> lk(g_lock);
         /* FORCE-ONLY: A and B can each be on any of 16 channels and it can
