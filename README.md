@@ -65,7 +65,7 @@ two instrument tracks ← `Mockba Acid Out`, on whichever channel(s) you set
 
 A full editor page for the Force's own touchscreen, rendered by
 [`force-shadow`](https://github.com/sd88me/force-shadow): open it with
-`SHIFT+SCENE-5`, start/stop the engine from the ENGINE cell in the top bar.
+`SHIFT+SCENE-6`, start/stop the engine from the ENGINE cell in the top bar.
 Yellow chassis / charcoal boxes / red accent buttons, matching the web
 panel's TD-3-MO styling.
 
