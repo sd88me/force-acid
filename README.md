@@ -95,7 +95,9 @@ panel) below on the device.
 FORCE_HOST=user@force-ip ./scripts/deploy.sh user@force-ip
 ```
 
-This copies `addon/` to the Force's `AddOns/ForceAcid`, runs
+This assembles the full folder (`addon/` + the `force-acid` binary + `web/`,
+via `scripts/package.sh --stage`, building the binary first if needed),
+copies it to the Force's `AddOns/ForceAcid`, runs
 `manage.sh ENABLE` (engine autolaunch) and `web/manage.sh ENABLE` (web panel
 autolaunch) in one command. It supersedes the manual steps in
 `scripts/install.sh`, which only handles the engine's own `manage.sh
