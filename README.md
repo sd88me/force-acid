@@ -83,6 +83,14 @@ panel's TD-3-MO styling.
 
 ## Installation
 
+**From a release (no build needed):** download `ForceAcid-<version>.zip`
+from the Releases page (under *Assets*, not the "Source code" archives) and
+unzip it onto the SD card root, overwriting the old files in
+`AddOns/ForceAcid`. Then run the `manage.sh ENABLE` steps (engine and web
+panel) below on the device.
+
+**From a checkout:**
+
 ```bash
 FORCE_HOST=user@force-ip ./scripts/deploy.sh user@force-ip
 ```
