@@ -83,7 +83,7 @@ Regenerate it (same command) if `docs/CC-MAP.md`'s CC assignments ever
 change — the two need to stay in sync by hand, same convention as
 `host_shim.cpp`'s `PARAMS[]` table.
 
-### Leftover donor-addon data (found, fixed)
+### Leftover donor-addon data (found, fixed) — and what it's really for
 
 `customQLinks` was always fully overwritten, but on-device inspection found
 the seed carried real, un-scrubbed state from whatever addon it was actually
@@ -92,11 +92,30 @@ captured controlling — not just Harpie4T's own chrome:
 - `data.program.customisable.mapping` (127 entries) is a *different*
   addon's own generator-engine automation-parameter names (e.g. `"1 Mode
   0-25 (1 Cluster 0-59)"`, `"1 Rand Rotate (CC 86)"`) — would have leaked
-  into the Force's automation-parameter picker for this track. Fixed by
-  `blank_mapping()`: every entry reset to the same `{"automationIndex":
-  2147483647, "value": 0.0, "name": ""}` shape real "unused" slots already
-  use elsewhere in the same file (not a guess — 30 of the original 127
-  entries already looked exactly like this).
+  into the Force's automation-parameter picker for this track.
+
+  **REAL-HARDWARE FINDING, corrects two earlier wrong guesses:** this table
+  is what the Force's on-screen custom-knob page actually renders —
+  `customQLinks` is not what shows those names on screen (its real purpose
+  is still unconfirmed, possibly the physical hardware Q-Link bank only).
+  Each `mapping[]` entry is `{automationIndex: <MIDI CC number>,
+  name: <display label>, value: <0-1 default>}`. Confirmed by loading our
+  built template on real Force hardware and comparing screenshots: an
+  unmodified donor track (RiffMaker4T) showed its own correct custom names
+  (e.g. automationIndex 24 → `"1 DIV 0-10"`), while ours — after a first
+  attempt that only blanked `name` and left the donor's `automationIndex`/
+  `value` in place — showed the donor's leftover CC numbers as generic
+  fallback labels (Force shows a built-in MIDI-standard name when one
+  exists, e.g. CC 11 → `"Expression"`, else a bare `"CC <n>"`) with the
+  donor's own leftover values. The two earlier fix attempts (reset
+  automationIndex to a sentinel on every entry; then just blanking `name`)
+  were each wrong for different reasons — see `scripts/build_xtk.py`'s
+  `blank_mapping()` docstring for the full history. The correct fix:
+  actually populate this table with our own CCs/labels from `KNOBS` for the
+  slots we use, and reset every other slot to the file's own "unused slot"
+  shape (`{"automationIndex": 2147483647, "value": 0.0, "name": ""}` — not
+  a guess, 30 of the original 127 entries already looked exactly like
+  this).
 - `data.midiInputRoute`/`midiOutputRoute` pointed at `"Mockba Harpie 4T"` —
   a literally different ALSA client than force-acid's own (`"Mockba Acid"`,
   see `host_shim.cpp`'s `--client` default). Fixed by `fix_midi_routes()`,
